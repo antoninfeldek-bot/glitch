@@ -1,0 +1,2137 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Realtime WebGL datamosh, tracking HUD and glitch studio for filmmakers.">
+<title>Artifact Glitch Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap">
+<script src="https://cdn.tailwindcss.com/3.4.17"></script>
+<script>
+  tailwind.config = {
+    theme: { extend: {
+      colors: { bg:'var(--bg)', panel:'var(--panel)', panel2:'var(--panel2)', line:'var(--line)', fg:'var(--fg)', mute:'var(--mute)', accent:'var(--accent)', rec:'var(--rec)', ok:'var(--ok)' },
+      fontFamily: { ui:['"IBM Plex Sans Condensed"','system-ui','sans-serif'], mono:['"JetBrains Mono"','ui-monospace','SFMono-Regular','monospace'] }
+    } }
+  };
+</script>
+<style>
+  /* Layout: grading-suite shell — viewer, performance pads and transport on the left; a vertical signal-chain inspector on the right; stacks on phones. */
+  :root {
+    --bg: #0b0d10;        /* viewer surround, near-black with a cool bias */
+    --panel: #14171c;     /* inspector */
+    --panel2: #1a1e24;    /* module cards */
+    --line: #272c34;
+    --fg: #d6dae0;
+    --mute: #7c8591;
+    --accent: #e9a23b;    /* tungsten amber, like a scope trace */
+    --rec: #ff4b4b;
+    --ok: #59c99a;
+    --font-ui: "IBM Plex Sans Condensed", system-ui, sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, monospace;
+    color-scheme: dark;
+  }
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 13px; overflow: hidden; }
+  .app { height: 100%; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 10px; }
+  .mono { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+  .eyebrow { font-size: 10.5px; letter-spacing: .12em; text-transform: uppercase; color: var(--mute); font-weight: 600; }
+
+  .btn { display:inline-flex; align-items:center; gap:6px; height:30px; padding:0 11px; border:1px solid var(--line); background: var(--panel2); color: var(--fg); border-radius: 5px; font-weight:500; white-space:nowrap; transition: background .12s, border-color .12s; }
+  .btn:hover { background: #222831; border-color: #353c46; }
+  .btn:focus-visible, .chip:focus-visible, select:focus-visible, input:focus-visible, .sw:focus-visible, .pad:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .btn.primary { background: var(--accent); color: #1a1205; border-color: var(--accent); font-weight: 600; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.active { border-color: var(--accent); color: var(--accent); }
+  .btn.rec-on { background: var(--rec); border-color: var(--rec); color: #fff; }
+  .btn svg { width: 14px; height: 14px; }
+
+  .pad { position: relative; display:flex; flex-direction:column; justify-content:space-between; align-items:flex-start; width: 84px; height: 52px; padding: 6px 8px; border:1px solid var(--line); border-radius: 6px; background: var(--panel2); color: var(--fg); font-weight: 600; font-size: 12.5px; user-select:none; -webkit-user-select:none; touch-action:none; transition: background .08s, border-color .08s, box-shadow .08s; }
+  .pad .k { font-family: var(--font-mono); font-size: 10px; color: var(--mute); font-weight: 500; }
+  .pad:hover { border-color: #3a414b; }
+  .pad.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 24%, var(--panel2)); box-shadow: 0 0 22px -6px var(--accent); }
+  .pad.on .k { color: var(--fg); }
+  .pad.red { border-color: color-mix(in srgb, var(--rec) 55%, var(--line)); color: #ffb3b3; }
+  .pad.red.on { border-color: var(--rec); background: color-mix(in srgb, var(--rec) 40%, var(--panel2)); color: #fff; box-shadow: 0 0 26px -4px var(--rec); }
+  .meter { display:grid; grid-template-columns: 52px 1fr; align-items:center; gap: 6px; font-family: var(--font-mono); font-size: 9.5px; color: var(--mute); letter-spacing: .06em; }
+  .meter b { display:block; height: 6px; background: #22272e; border-radius: 3px; overflow: hidden; }
+  .meter b i { display:block; height: 100%; width: 0; background: var(--accent); }
+  .meter b i.m { background: var(--ok); }
+  .meter b i.c { background: var(--rec); }
+
+  select, .num { background: var(--bg); border:1px solid var(--line); color: var(--fg); border-radius:4px; height: 24px; padding: 0 6px; font-size: 12px; }
+  .num { width: 58px; text-align: right; font-family: var(--font-mono); font-variant-numeric: tabular-nums; padding: 0 5px; -moz-appearance: textfield; }
+  .num::-webkit-inner-spin-button, .num::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+  input[type=range] { -webkit-appearance:none; appearance:none; width:100%; height: 18px; background: transparent; cursor: pointer; }
+  input[type=range]::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--accent) 0 var(--p,0%), #2c323b var(--p,0%) 100%); }
+  input[type=range]::-moz-range-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, var(--accent) 0 var(--p,0%), #2c323b var(--p,0%) 100%); }
+  input[type=range]::-webkit-slider-thumb { -webkit-appearance:none; width: 11px; height: 11px; margin-top: -4px; border-radius: 50%; background: var(--fg); border: 2px solid var(--bg); }
+  input[type=range]::-moz-range-thumb { width: 9px; height: 9px; border-radius: 50%; background: var(--fg); border: 2px solid var(--bg); }
+  .card.off input[type=range]::-webkit-slider-runnable-track { background: linear-gradient(to right, #59606b 0 var(--p,0%), #2c323b var(--p,0%) 100%); }
+
+  .card { background: var(--panel2); border: 1px solid var(--line); border-radius: 7px; }
+  .card.off .card-body { opacity: .45; }
+  .card.off .mod-code { color: var(--mute); border-color: var(--line); }
+  .mod-code { font-family: var(--font-mono); font-size: 10px; color: var(--accent); border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent); padding: 1px 5px; border-radius: 3px; }
+
+  .sw { position: relative; width: 30px; height: 17px; border-radius: 10px; background: #2c323b; flex: none; transition: background .15s; }
+  .sw::after { content:""; position:absolute; top: 2px; left: 2px; width: 13px; height: 13px; border-radius: 50%; background: #8a929d; transition: transform .15s, background .15s; }
+  .sw[aria-checked=true] { background: color-mix(in srgb, var(--accent) 35%, #2c323b); }
+  .sw[aria-checked=true]::after { transform: translateX(13px); background: var(--accent); }
+
+  .chip { font-family: var(--font-mono); font-size: 10.5px; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--line); color: var(--fg); background: var(--bg); }
+  .chip.off { color: var(--mute); text-decoration: line-through; }
+  .chain-arrow { color: #48505b; font-size: 10px; }
+
+  .viewer { background:
+      linear-gradient(45deg, #0e1014 25%, transparent 25%) 0 0/16px 16px,
+      linear-gradient(-45deg, #0e1014 25%, transparent 25%) 0 0/16px 16px, #0b0d10; }
+  #glcanvas { display: block; box-shadow: 0 0 0 1px #20252c, 0 20px 50px -20px #000; touch-action: none; cursor: crosshair; }
+  .drop-hint { border: 2px dashed var(--accent); background: color-mix(in srgb, var(--bg) 82%, transparent); }
+  .hud { font-family: var(--font-mono); font-size: 11px; color: #e6e9ee; background: rgba(8,10,12,.62); padding: 3px 7px; border-radius: 3px; backdrop-filter: blur(4px); }
+  .rec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--rec); animation: blink 1s steps(2) infinite; }
+  @keyframes blink { 50% { opacity: .2; } }
+
+  .scroll::-webkit-scrollbar { width: 8px; }
+  .scroll::-webkit-scrollbar-thumb { background: #2a3038; border-radius: 4px; }
+
+  .modal-back { background: rgba(4,5,7,.7); backdrop-filter: blur(3px); }
+  pre.code { font-family: var(--font-mono); font-size: 11.5px; line-height: 1.55; color: #c9d1db; tab-size: 4; }
+  .toast { background: #20252c; border: 1px solid var(--line); box-shadow: 0 10px 30px -10px #000; }
+
+  @media (max-width: 860px) {
+    body { overflow: auto; }
+    .app { height: auto; min-height: 100%; }
+    .shell { flex-direction: column; }
+    .viewer-col { flex: none; }
+    #viewer { height: 52vh; min-height: 260px; flex: none; }
+    .inspector { width: 100% !important; max-height: none !important; }
+    .pad { width: calc(25% - 5px); min-width: 64px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .rec-dot { animation: none; } * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div class="app flex flex-col gap-2.5">
+  <!-- Top bar -->
+  <header class="flex flex-wrap items-center gap-2 min-w-0">
+    <div class="flex items-center gap-2.5 mr-2">
+      <svg width="22" height="22" viewBox="0 0 22 22" aria-hidden="true"><rect x="1" y="1" width="20" height="20" rx="4" fill="none" stroke="var(--accent)" stroke-width="1.5"/><rect x="5" y="6" width="5" height="3" fill="#ff4b4b"/><rect x="8" y="10" width="9" height="2.5" fill="var(--accent)"/><rect x="4" y="14" width="7" height="2.5" fill="#4fa3ff"/></svg>
+      <div class="leading-tight">
+        <div class="font-semibold tracking-wide text-[14px]">Artifact Glitch Studio</div>
+        <div class="eyebrow !text-[9.5px]">Realtime mosh · tracking · signal damage</div>
+      </div>
+    </div>
+    <label class="btn cursor-pointer" for="fileInput" title="Load MP4 / WebM / PNG / JPG">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M8 11V2M4.5 5.5 8 2l3.5 3.5M2 11v3h12v-3"/></svg>Import media
+    </label>
+    <input id="fileInput" type="file" accept="video/mp4,video/webm,video/quicktime,image/png,image/jpeg,image/webp" class="hidden">
+    <button id="camBtn" class="btn" title="Use your webcam as the live source">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="1.5" y="4" width="9" height="8" rx="1.5"/><path d="m10.5 7 4-2.5v7l-4-2.5"/></svg>Camera
+    </button>
+    <button id="demoBtn" class="btn" title="Back to the built-in demo reel">Demo reel</button>
+    <div class="flex-1"></div>
+    <button id="recBtn" class="btn" title="Record the processed canvas (R)">
+      <span class="w-2.5 h-2.5 rounded-full bg-rec inline-block"></span><span id="recLabel">Record</span>
+    </button>
+    <button id="pngBtn" class="btn" title="Save current frame as PNG">Still</button>
+    <button id="dctlBtn" class="btn primary" title="Generate a DaVinci Resolve DCTL from current settings">
+      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M5 4 1.5 8 5 12M11 4l3.5 4L11 12M9.5 2.5l-3 11"/></svg>Export DCTL
+    </button>
+  </header>
+
+  <div class="shell flex gap-2.5 flex-1 min-h-0">
+    <!-- Viewer column -->
+    <section class="viewer-col flex flex-col flex-1 min-w-0 min-h-0 rounded-lg overflow-hidden border border-line">
+      <div id="viewer" class="viewer relative flex-1 min-h-0 flex items-center justify-center overflow-hidden">
+        <canvas id="glcanvas" aria-label="Processed preview. Drag on it to smear pixels."></canvas>
+        <div class="absolute top-2.5 left-2.5 flex gap-1.5 pointer-events-none">
+          <span class="hud" id="hudSrc">DEMO REEL</span>
+          <span class="hud" id="hudRes">1280×720</span>
+        </div>
+        <div class="absolute top-2.5 right-2.5 flex gap-1.5 items-center pointer-events-none">
+          <span id="hudRec" class="hud items-center gap-1.5" style="display:none"><span class="rec-dot"></span><span id="recTime">00:00</span></span>
+          <span class="hud" id="hudFps">-- fps</span>
+        </div>
+        <div class="absolute bottom-2.5 left-1/2 -translate-x-1/2 pointer-events-none"><span class="hud text-[13px]" id="hudTc">00:00:00:00</span></div>
+        <div id="smearHint" class="absolute bottom-2.5 left-2.5 hud pointer-events-none">drag on picture = smear</div>
+        <div id="abHint" class="absolute bottom-2.5 left-2.5 hud pointer-events-none" hidden>A ◂ source &nbsp;|&nbsp; output ▸ B · drag to wipe</div>
+        <div id="dropZone" class="drop-hint absolute inset-3 rounded-lg flex flex-col items-center justify-center gap-2" hidden>
+          <div class="text-[16px] font-semibold">Drop to load</div>
+          <div class="text-mute">MP4 · WebM · MOV (H.264) · PNG · JPG</div>
+        </div>
+        <div id="flashFx" class="absolute inset-0 pointer-events-none"></div>
+      </div>
+
+      <!-- Performance strip -->
+      <div class="flex flex-wrap items-center gap-x-3 gap-y-2 px-2.5 py-2 bg-panel border-t border-line">
+        <div class="flex flex-wrap gap-1.5">
+          <button class="pad" id="padHold" title="Hold: drop I-frames, every block keeps predicting from the old picture">Mosh hold<span class="k">hold M</span></button>
+          <button class="pad" id="padBloom" title="Hold: freeze the current motion vectors and repeat them (P-frame bloom)">Bloom<span class="k">hold N</span></button>
+          <button class="pad" id="padKey" title="Insert a clean I-frame">I-frame<span class="k">tap I</span></button>
+          <button class="pad red" id="padFlash" title="Hold for maximum destruction">Flash<span class="k">hold Space</span></button>
+        </div>
+        <div class="flex flex-col gap-1 w-[150px]">
+          <div class="meter"><span>HOLD</span><b><i id="mHold"></i></b></div>
+          <div class="meter"><span>MOTION</span><b><i id="mMotion" class="m"></i></b></div>
+          <div class="meter"><span>CHAOS</span><b><i id="mChaos" class="c"></i></b></div>
+        </div>
+        <div class="grid grid-cols-[auto_minmax(80px,1fr)_auto] items-center gap-x-2 gap-y-0.5 flex-1 min-w-[220px]">
+          <label for="chaosAmt" class="text-[12px] text-mute">Chaos</label>
+          <input id="chaosAmt" type="range" min="0" max="1" step="0.01">
+          <span class="mono text-[11px] w-9 text-right" id="chaosAmtV"></span>
+          <label for="reactAmt" class="text-[12px] text-mute">Motion react</label>
+          <input id="reactAmt" type="range" min="0" max="1" step="0.01">
+          <span class="mono text-[11px] w-9 text-right" id="reactAmtV"></span>
+        </div>
+        <label class="flex items-center gap-1.5 text-mute text-[12px]" for="cutSel">On cut
+          <select id="cutSel">
+            <option value="0">Mosh through</option>
+            <option value="1">Refresh</option>
+            <option value="2">Ignore</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Transport -->
+      <div class="flex flex-wrap items-center gap-2 px-2.5 py-2 bg-panel border-t border-line">
+        <button id="playBtn" class="btn !h-7 !px-2.5" title="Play / pause media" aria-label="Play or pause">
+          <svg id="playIco" viewBox="0 0 16 16" fill="currentColor"><path d="M4 3h3v10H4zM9 3h3v10H9z"/></svg>
+        </button>
+        <input id="scrub" type="range" min="0" max="1000" value="0" class="flex-1 min-w-[120px]" aria-label="Media position" disabled>
+        <span class="mono text-mute text-[11px]" id="durLabel">loop</span>
+        <div class="w-px h-5 bg-line mx-1"></div>
+        <button id="abBtn" class="btn !h-7" title="A/B wipe against the source (B)">A/B</button>
+        <label class="flex items-center gap-1.5 text-mute text-[12px]" for="qualSel">Preview
+          <select id="qualSel">
+            <option value="540">540p</option>
+            <option value="720" selected>720p</option>
+            <option value="1080">1080p</option>
+            <option value="4096">Native</option>
+          </select>
+        </label>
+        <label class="flex items-center gap-1.5 text-mute text-[12px]" for="fmtSel">Rec
+          <select id="fmtSel"></select>
+        </label>
+        <select id="fpsSel" aria-label="Recording frame rate">
+          <option value="24">24 fps</option><option value="25">25 fps</option><option value="30" selected>30 fps</option><option value="60">60 fps</option>
+        </select>
+      </div>
+    </section>
+
+    <!-- Inspector -->
+    <aside class="inspector w-[372px] flex-none flex flex-col bg-panel border border-line rounded-lg min-h-0">
+      <div class="px-3 pt-3 pb-2.5 border-b border-line flex flex-col gap-2.5">
+        <div class="flex items-center justify-between">
+          <span class="eyebrow">Signal chain</span>
+          <button id="resetBtn" class="text-[11px] text-mute hover:text-fg">Reset all</button>
+        </div>
+        <div id="chainMap" class="flex flex-wrap items-center gap-1"></div>
+        <div class="flex items-center gap-2">
+          <label for="presetSel" class="eyebrow">Preset</label>
+          <select id="presetSel" class="flex-1"></select>
+        </div>
+        <div class="grid grid-cols-[auto_1fr_auto] items-center gap-x-2">
+          <label for="flashAmt" class="text-[12px] text-mute">Flash strength</label>
+          <input id="flashAmt" type="range" min="0" max="1.5" step="0.01" value="1">
+          <span class="mono text-[11px] w-9 text-right" id="flashAmtV">1.00</span>
+        </div>
+      </div>
+      <div id="modules" class="scroll flex-1 min-h-0 overflow-y-auto p-2.5 flex flex-col gap-2"></div>
+      <div class="px-3 py-2 border-t border-line text-[11px] text-mute leading-relaxed">
+        <span class="mono text-fg">M</span> hold · <span class="mono text-fg">N</span> bloom · <span class="mono text-fg">I</span> I-frame · <span class="mono text-fg">Space</span> flash · <span class="mono text-fg">B</span> A/B · <span class="mono text-fg">R</span> record · drag picture to smear · double-click a slider to reset
+      </div>
+    </aside>
+  </div>
+</div>
+
+<!-- DCTL modal -->
+<div id="dctlModal" class="modal-back fixed inset-0 z-40 flex items-center justify-center p-4" hidden>
+  <div class="bg-panel border border-line rounded-lg w-full max-w-[860px] max-h-[88vh] flex flex-col min-w-0" role="dialog" aria-labelledby="dctlTitle">
+    <div class="flex flex-wrap items-center gap-2 px-4 py-3 border-b border-line">
+      <div class="flex-1 min-w-0">
+        <div id="dctlTitle" class="font-semibold text-[14px]">DaVinci Resolve DCTL</div>
+        <div class="text-mute text-[12px]">Every slider is exposed in the Resolve node UI, preset to your current values.</div>
+      </div>
+      <input id="dctlName" class="num !w-44 !text-left" value="ArtifactGlitch" aria-label="DCTL file name" spellcheck="false">
+      <button id="dctlCopy" class="btn">Copy to clipboard</button>
+      <button id="dctlSave" class="btn primary">Save .dctl</button>
+      <button id="dctlClose" class="btn" aria-label="Close">✕</button>
+    </div>
+    <div class="px-4 py-2.5 border-b border-line text-[12px] text-mute leading-relaxed">
+      Install: put the file in <span class="mono text-fg">/Library/Application Support/Blackmagic Design/DaVinci Resolve/LUT/</span> (macOS) or <span class="mono text-fg">C:\ProgramData\Blackmagic Design\DaVinci Resolve\Support\LUT\</span> (Windows), then <span class="text-fg">Project Settings → Color Management → Update Lists</span>, and apply via the <span class="text-fg">DCTL</span> OpenFX on a node.
+      <span id="dctlNote" class="block mt-1 text-accent"></span>
+    </div>
+    <div class="flex-1 min-h-0 overflow-auto scroll bg-bg"><pre id="dctlCode" class="code p-4 whitespace-pre"></pre></div>
+  </div>
+</div>
+
+<div id="toast" class="toast fixed z-50 bottom-5 left-1/2 -translate-x-1/2 px-3.5 py-2 rounded-md text-[12.5px]" hidden></div>
+
+<script type="importmap">
+{ "imports": {
+  "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+} }
+</script>
+
+<script type="module">
+import * as THREE from 'three';
+import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import { ShaderPass } from 'three/addons/postprocessing/ShaderPass.js';
+import { Pass, FullScreenQuad } from 'three/addons/postprocessing/Pass.js';
+
+/* ============================================================
+   MODULE DEFINITIONS — single source of truth for UI, uniforms,
+   presets and the DCTL exporter.
+   ============================================================ */
+const DEFS = {
+  mosh: { code:'M3', name:'Datamosh', sub:'Block-matched motion vectors · P-frame drift', params:[
+    { g:'Prediction' },
+    { k:'amount',   l:'Base I-frame loss', v:0, min:0, max:1, s:0.01 },
+    { k:'gain',     l:'Vector gain', v:1.25, min:0, max:4, s:0.01, u:'×' },
+    { k:'residual', l:'Residual bleed', v:0.6, min:0, max:1.5, s:0.01 },
+    { k:'intra',    l:'Intra refresh', v:0.12, min:0, max:1, s:0.01 },
+    { k:'heal',     l:'Heal', v:0, min:0, max:0.2, s:0.002 },
+    { k:'release',  l:'Release', v:0.8, min:0, max:5, s:0.05, u:'s' },
+    { k:'reshuffle',l:'Block reshuffle', v:1.5, min:0, max:20, s:0.1, u:'Hz' },
+    { g:'Motion estimation' },
+    { k:'block',    l:'Macroblock', v:16, min:8, max:48, s:4, u:'px' },
+    { k:'range',    l:'Search range', v:28, min:4, max:32, s:4, u:'px' },
+    { k:'smooth',   l:'Vector smoothing', v:0.35, min:0, max:1, s:0.01 },
+    { k:'temporal', l:'Temporal smoothing', v:0.35, min:0, max:0.95, s:0.01 },
+    { g:'Drift' },
+    { k:'turb',     l:'Turbulence', v:0.08, min:0, max:1, s:0.01 },
+    { k:'gravity',  l:'Melt (gravity)', v:0, min:-1, max:1, s:0.01 },
+    { g:'Paint smear' },
+    { k:'brushSize', l:'Brush size', v:0.09, min:0.01, max:0.4, s:0.005 },
+    { k:'brushForce',l:'Smear force', v:1.2, min:0, max:4, s:0.05, u:'×' },
+    { k:'brushHold', l:'Smear hold', v:2, min:0.1, max:10, s:0.1, u:'s' },
+    { g:'Analyzer' },
+    { k:'vectors',  l:'Vector overlay', v:0, min:0, max:1, s:0.01 },
+  ]},
+  block: { code:'M2', name:'Pixel Sort / Blocks', sub:'Macroblock corruption · luma-gated sorting', params:[
+    { g:'Block artifacts' },
+    { k:'size',   l:'Block size', v:24, min:2, max:128, s:1, u:'px' },
+    { k:'amount', l:'Corruption', v:0.03, min:0, max:1, s:0.01 },
+    { k:'shift',  l:'Displacement', v:1.2, min:0, max:6, s:0.05, u:'blk' },
+    { k:'quant',  l:'Quantize', v:0.5, min:0, max:1, s:0.01 },
+    { k:'grid',   l:'Grid overlay', v:0, min:0, max:1, s:0.01 },
+    { k:'speed',  l:'Corruption rate', v:4, min:0, max:30, s:0.5, u:'Hz' },
+    { g:'Pixel sort' },
+    { k:'length', l:'Sort length', v:0, min:0, max:96, s:1, u:'px' },
+    { k:'lo',     l:'Luma threshold low', v:0.55, min:0, max:1, s:0.01 },
+    { k:'hi',     l:'Luma threshold high', v:1, min:0, max:1, s:0.01 },
+    { k:'rows',   l:'Sorted lanes', v:0.5, min:0, max:1, s:0.01 },
+    { k:'dir',    l:'Direction', v:0, opts:['Horizontal','Vertical'] },
+    { k:'reverse',l:'Reverse order', v:0, toggle:true },
+  ]},
+  rgb: { code:'M1', name:'RGB Split', sub:'Chromatic aberration · phase dispersion', params:[
+    { k:'amount', l:'Channel shift', v:3, min:0, max:60, s:0.1, u:'px' },
+    { k:'angle',  l:'Shift angle', v:0, min:0, max:360, s:1, u:'°' },
+    { k:'radial', l:'Radial (lens CA)', v:0.4, min:0, max:1, s:0.01 },
+    { k:'disp',   l:'Spectral dispersion', v:0.4, min:0, max:1, s:0.01 },
+    { k:'phase',  l:'Phase wave', v:0, min:0, max:30, s:0.1, u:'px' },
+    { k:'freq',   l:'Wave frequency', v:4, min:0, max:40, s:0.1, u:'cyc' },
+    { k:'jitter', l:'Line jitter', v:0.12, min:0, max:1, s:0.01 },
+  ]},
+  grade: { code:'M5', name:'Color Grade / Crush', sub:'Primaries · posterize · bit-crush', params:[
+    { k:'exposure', l:'Exposure', v:0, min:-3, max:3, s:0.01, u:'st' },
+    { k:'contrast', l:'Contrast', v:1.08, min:0, max:3, s:0.01 },
+    { k:'sat',      l:'Saturation', v:1.12, min:0, max:3, s:0.01 },
+    { k:'gamma',    l:'Gamma', v:1, min:0.2, max:3, s:0.01 },
+    { k:'hue',      l:'Hue rotate', v:0, min:-180, max:180, s:1, u:'°' },
+    { k:'crush',    l:'Black crush', v:0.03, min:0, max:0.5, s:0.005 },
+    { k:'bits',     l:'Bit depth', v:8, min:1, max:8, s:0.1, u:'bit', off:8, offLabel:'off' },
+    { k:'levels',   l:'Posterize levels', v:1, min:1, max:32, s:1, off:1, offLabel:'off' },
+    { k:'dither',   l:'Dither', v:0.5, min:0, max:1, s:0.01 },
+  ]},
+  scan: { code:'M4', name:'Scanlines & Noise', sub:'CRT raster · analog noise · phase flicker', params:[
+    { k:'period',   l:'Line pitch', v:3, min:1.5, max:12, s:0.1, u:'px' },
+    { k:'lines',    l:'Scanline depth', v:0.18, min:0, max:1, s:0.01 },
+    { k:'noise',    l:'Analog noise', v:0.05, min:0, max:0.6, s:0.005 },
+    { k:'flicker',  l:'Phase flicker', v:0.1, min:0, max:1, s:0.01 },
+    { k:'chroma',   l:'Chroma phase error', v:1.2, min:0, max:12, s:0.1, u:'px' },
+    { k:'tracking', l:'Tracking tear', v:0.08, min:0, max:1, s:0.01 },
+    { k:'roll',     l:'Vertical roll', v:0, min:0, max:4, s:0.05 },
+    { k:'vignette', l:'Vignette', v:0.35, min:0, max:1, s:0.01 },
+    { k:'curve',    l:'Tube curvature', v:0, min:0, max:1, s:0.01 },
+  ]},
+  track: { code:'M6', name:'Tracking HUD', sub:'Realtime blob / point tracking · in-box FX', params:[
+    { g:'Detection' },
+    { k:'source',  l:'Track', v:0, opts:['Motion','Highlights','Edges','Shadows'] },
+    { k:'mode',    l:'Detector', v:0, opts:['Blobs','Points'] },
+    { k:'thresh',  l:'Threshold', v:0.3, min:0.02, max:0.95, s:0.01 },
+    { k:'max',     l:'Max targets', v:8, min:1, max:24, s:1 },
+    { k:'minSize', l:'Min blob size', v:4, min:1, max:80, s:1, u:'cells' },
+    { k:'size',    l:'Point box size', v:70, min:12, max:300, s:1, u:'px' },
+    { k:'smooth',  l:'Track smoothing', v:0.6, min:0, max:0.95, s:0.01 },
+    { g:'Look' },
+    { k:'style',   l:'Marker', v:0, opts:['Brackets','Box','Crosshair','Circle'] },
+    { k:'labels',  l:'Labels', v:1, opts:['None','ID','XY','Score','Data'] },
+    { k:'lines',   l:'Links', v:1, opts:['None','Nearest','Web','Chain'] },
+    { k:'color',   l:'Color', v:0, opts:['White','Amber','Per target','Red'] },
+    { k:'width',   l:'Stroke', v:1.5, min:0.5, max:5, s:0.1, u:'px' },
+    { g:'Inside boxes' },
+    { k:'fx',      l:'Box FX', v:0, opts:['None','Invert','Pixelate','Thermal','1-bit','Magnify','Channel shift'] },
+    { k:'fxAmt',   l:'FX amount', v:1, min:0, max:1, s:0.01 },
+    { k:'mosh',    l:'Mosh inside boxes', v:0, min:0, max:1, s:0.01 },
+  ]},
+};
+const DEFAULT_ORDER = ['mosh','block','rgb','grade','scan','track'];
+const DEFAULT_PERF = { chaos: 0.4, react: 0.35, cut: 0 };
+
+function defaults() {
+  const mods = {};
+  for (const id in DEFS) {
+    const values = {};
+    for (const p of DEFS[id].params) if (p.k) values[p.k] = p.v;
+    mods[id] = { on: true, open: id === 'mosh', values };
+  }
+  return { order: [...DEFAULT_ORDER], mods, flashAmt: 1, perf: { ...DEFAULT_PERF } };
+}
+
+const PRESETS = {
+  'Supermosh (default)': {},
+  'Liquid melt': { on:{ block:0, scan:0, track:0 },
+    mosh:{ gain:1.6, residual:0.95, smooth:0.85, temporal:0.6, turb:0.3, gravity:0.35, intra:0.04, release:2.5 },
+    rgb:{ amount:2, radial:0.5 }, grade:{ sat:1.35, contrast:1.15 }, perf:{ chaos:0.6, react:0.5 } },
+  'Cut-transition bloom': { on:{ block:0, track:0 },
+    mosh:{ gain:1.2, residual:1.0, smooth:0.15, intra:0.02, release:3.5 },
+    scan:{ lines:0.1, noise:0.03 }, perf:{ chaos:0.25, react:0.2, cut:0 } },
+  'Codec analyzer': { on:{ scan:0, track:0 },
+    mosh:{ vectors:0.85, smooth:0, gain:1, intra:0.25 },
+    block:{ grid:0.3, amount:0.08, quant:0.8 }, rgb:{ amount:0 }, perf:{ chaos:0.45 } },
+  'Tracker HUD': { on:{ block:0 },
+    track:{ style:0, labels:2, lines:2, fx:1, fxAmt:1, color:0, thresh:0.25, max:10 },
+    mosh:{ residual:0.8 }, scan:{ lines:0.25 }, perf:{ chaos:0.2 } },
+  'Thermal surveillance': { on:{ block:0, rgb:0 },
+    track:{ style:1, labels:4, lines:1, fx:3, color:2, mode:1, size:90, thresh:0.22 },
+    grade:{ sat:0.2, contrast:1.3 }, scan:{ lines:0.4, noise:0.12, vignette:0.6 }, perf:{ chaos:0.15 } },
+  'Mosh follows targets': { on:{ block:0, scan:0 },
+    track:{ mosh:1, fx:0, style:3, labels:1, lines:3, color:1 },
+    mosh:{ gain:1.8, residual:1, turb:0.2, intra:0 }, perf:{ chaos:0, react:0 } },
+  'VHS dub, 3rd generation': { on:{ mosh:0, block:0, track:0 },
+    rgb:{ amount:3, radial:0.1, disp:0.25, jitter:0.45 },
+    scan:{ lines:0.45, noise:0.13, tracking:0.45, chroma:4.5, flicker:0.35, vignette:0.55, curve:0.25, roll:0.2 },
+    grade:{ sat:0.72, contrast:1.18, crush:0.06, bits:6, hue:-6 }, perf:{ chaos:0 } },
+  'Pixel sort, vertical melt': { on:{ mosh:0, scan:0, track:0 },
+    block:{ amount:0, length:96, lo:0.3, hi:1, rows:1, dir:1 },
+    rgb:{ amount:4, radial:0.6, disp:0.7 }, grade:{ contrast:1.25, sat:1.35 } },
+  'Broadcast failure': {
+    rgb:{ amount:12, angle:12, disp:0.8, phase:6, freq:9, jitter:0.6 },
+    block:{ amount:0.22, length:40, grid:0.35, quant:0.9 },
+    mosh:{ amount:0.4, gain:2 },
+    scan:{ lines:0.5, noise:0.22, tracking:0.7, chroma:6, flicker:0.6, roll:0.6, curve:0.3 },
+    grade:{ bits:3.5, levels:6, sat:1.6, contrast:1.4 }, track:{ fx:4, lines:2 }, perf:{ chaos:0.9, react:0.6 } },
+  'Clean pass-through': { on:{ rgb:0, block:0, mosh:0, scan:0, grade:0, track:0 }, perf:{ chaos:0, react:0 } },
+};
+
+function presetState(name) {
+  const st = defaults();
+  const p = PRESETS[name] || {};
+  for (const id in DEFS) {
+    if (p.on && id in p.on) st.mods[id].on = !!p.on[id];
+    if (p[id]) Object.assign(st.mods[id].values, p[id]);
+  }
+  if (p.perf) Object.assign(st.perf, p.perf);
+  return st;
+}
+
+/* ============================================================
+   STATE (+ per-viewer persistence)
+   ============================================================ */
+const STORE_KEY = 'glitch-studio-state-v2';
+let state = defaults();
+try {
+  const saved = JSON.parse(localStorage.getItem(STORE_KEY) || 'null');
+  if (saved && saved.mods) {
+    for (const id in DEFS) if (saved.mods[id]) {
+      state.mods[id].on = !!saved.mods[id].on;
+      state.mods[id].open = !!saved.mods[id].open;
+      for (const k in state.mods[id].values) if (typeof saved.mods[id].values?.[k] === 'number') state.mods[id].values[k] = saved.mods[id].values[k];
+    }
+    if (Array.isArray(saved.order) && saved.order.length === DEFAULT_ORDER.length && DEFAULT_ORDER.every(id => saved.order.includes(id))) state.order = saved.order;
+    if (typeof saved.flashAmt === 'number') state.flashAmt = saved.flashAmt;
+    if (saved.perf) for (const k in DEFAULT_PERF) if (typeof saved.perf[k] === 'number') state.perf[k] = saved.perf[k];
+  }
+} catch (e) { /* storage unavailable: start from defaults */ }
+let saveTimer = 0;
+function persist() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => { try { localStorage.setItem(STORE_KEY, JSON.stringify(state)); } catch (e) {} }, 250);
+}
+
+/* ---------- randomness that never loops ---------- */
+const NT = Float32Array.from({ length: 1024 }, () => Math.random());
+function noise1(x) { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return NT[i & 1023] * (1 - u) + NT[(i + 1) & 1023] * u; }
+const expRand = mean => -Math.log(1 - Math.random()) * mean;
+
+/* ============================================================
+   SHADERS
+   ============================================================ */
+const VERT = /* glsl */`
+varying vec2 vUv;
+void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+const COMMON = /* glsl */`
+precision highp float;
+varying vec2 vUv;
+uniform vec2 uRes;
+uniform float uTime;
+uniform float uFlash;
+float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * .1031); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.x + p3.y) * p3.z); }
+vec2 hash22(vec2 p){ vec3 p3 = fract(vec3(p.xyx) * vec3(.1031, .1030, .0973)); p3 += dot(p3, p3.yzx + 33.33); return fract((p3.xx + p3.yz) * p3.zy); }
+float vnoise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f*f*(3.0-2.0*f);
+  return mix(mix(hash12(i), hash12(i+vec2(1,0)), u.x), mix(hash12(i+vec2(0,1)), hash12(i+vec2(1,1)), u.x), u.y); }
+float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
+float sdSeg(vec2 p, vec2 a, vec2 b){ vec2 pa = p - a, ba = b - a; float h = clamp(dot(pa, ba) / max(dot(ba, ba), 1e-6), 0.0, 1.0); return length(pa - ba * h); }
+`;
+
+const BOXES = /* glsl */`
+uniform vec4 uBoxes[24];
+uniform int uBoxCount;
+int boxHit(vec2 uv){ int h = -1; for (int i = 0; i < 24; i++) { if (i >= uBoxCount) break; vec4 b = uBoxes[i]; if (uv.x >= b.x && uv.y >= b.y && uv.x <= b.z && uv.y <= b.w) h = i; } return h; }
+`;
+
+const FRAG_SOURCE = `
+uniform sampler2D tSource;
+void main(){ gl_FragColor = vec4(texture2D(tSource, vUv).rgb, 1.0); }`;
+
+const FRAG_COPY = `
+uniform sampler2D tDiffuse;
+void main(){ gl_FragColor = texture2D(tDiffuse, vUv); }`;
+
+/* ---- Motion estimation (pre-chain) ---- */
+// Quarter-resolution luma (4-tap box over a 4x4 footprint)
+const FRAG_LUMA = `
+uniform sampler2D tSource; uniform vec2 uPx;
+void main(){
+  vec3 c = texture2D(tSource, vUv + vec2(-1.0,-1.0)*uPx).rgb + texture2D(tSource, vUv + vec2(1.0,-1.0)*uPx).rgb
+         + texture2D(tSource, vUv + vec2(-1.0, 1.0)*uPx).rgb + texture2D(tSource, vUv + vec2(1.0, 1.0)*uPx).rgb;
+  gl_FragColor = vec4(luma(c * 0.25), 0.0, 0.0, 1.0);
+}`;
+
+// Exhaustive block matching, like an encoder's motion search. Out: rg = motion vector (render px), b = best SAD, a = zero-vector SAD.
+const FRAG_MATCH = `
+uniform sampler2D tCur, tPrev; uniform vec2 uQRes, uGrid; uniform float uBlockQ, uRange, uLambda, uScale;
+#define MAXR 8
+void main(){
+  vec2 blk = floor(vUv * uGrid);
+  vec2 org = blk * uBlockQ;
+  float st = uBlockQ / 4.0;
+  float cv[16];
+  for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++) cv[j*4+i] = texture2D(tCur, (org + (vec2(float(i), float(j)) + 0.5) * st) / uQRes).r;
+  float best = 1e9, bestSad = 0.0, zero = 0.0; vec2 bd = vec2(0.0);
+  int R = int(uRange);
+  for (int dy = -MAXR; dy <= MAXR; dy++) { if (dy < -R || dy > R) continue;
+    for (int dx = -MAXR; dx <= MAXR; dx++) { if (dx < -R || dx > R) continue;
+      vec2 d = vec2(float(dx), float(dy));
+      float sad = 0.0;
+      for (int j = 0; j < 4; j++) for (int i = 0; i < 4; i++)
+        sad += abs(cv[j*4+i] - texture2D(tPrev, (org + (vec2(float(i), float(j)) + 0.5) * st + d) / uQRes).r);
+      sad *= 0.0625;
+      float cost = sad + uLambda * length(d);
+      if (dx == 0 && dy == 0) zero = sad;
+      if (cost < best) { best = cost; bd = d; bestSad = sad; }
+    }
+  }
+  gl_FragColor = vec4(-bd * uScale, bestSad, zero);
+}`;
+
+// Spatial + temporal vector smoothing; frozen during bloom.
+const FRAG_FLOWS = `
+uniform sampler2D tRaw, tPrevS; uniform vec2 uGrid; uniform float uSpatial, uTemporal, uFreeze, uUpdate;
+void main(){
+  vec4 prev = texture2D(tPrevS, vUv);
+  if (uFreeze > 0.5 || uUpdate < 0.5) { gl_FragColor = prev; return; }
+  vec2 g = 1.0 / uGrid;
+  vec4 raw = texture2D(tRaw, vUv), bl = vec4(0.0);
+  for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) bl += texture2D(tRaw, vUv + vec2(float(i), float(j)) * g);
+  vec4 f = mix(raw, bl / 9.0, uSpatial);
+  gl_FragColor = mix(f, prev, uTemporal);
+}`;
+
+// Paint-smear brush: r = hold mask, gb = injected velocity (px/frame). Decays over time.
+const FRAG_BRUSH = `
+uniform sampler2D tPrev; uniform vec2 uA, uB, uVel; uniform float uActive, uRadius, uDecay, uAspect;
+void main(){
+  vec4 p = texture2D(tPrev, vUv) * uDecay;
+  if (uActive > 0.5) {
+    vec2 s = vec2(uAspect, 1.0);
+    float d = sdSeg(vUv * s, uA * s, uB * s);
+    float w = exp(-(d * d) / (uRadius * uRadius));
+    p.r = max(p.r, w);
+    p.gb = mix(p.gb, uVel, clamp(w * 1.5, 0.0, 1.0));
+  }
+  gl_FragColor = p;
+}`;
+
+// Tiny analysis map read back to the CPU for tracking / motion reactivity: r motion, g luma, b edges, a frame difference.
+const FRAG_ANALYSIS = `
+uniform sampler2D tLuma, tLumaPrev, tFlow; uniform vec2 uQPx;
+void main(){
+  float l = texture2D(tLuma, vUv).r, lp = texture2D(tLumaPrev, vUv).r;
+  float motion = clamp(length(texture2D(tFlow, vUv).xy) / 14.0, 0.0, 1.0);
+  float gx = texture2D(tLuma, vUv + vec2(uQPx.x * 2.0, 0.0)).r - texture2D(tLuma, vUv - vec2(uQPx.x * 2.0, 0.0)).r;
+  float gy = texture2D(tLuma, vUv + vec2(0.0, uQPx.y * 2.0)).r - texture2D(tLuma, vUv - vec2(0.0, uQPx.y * 2.0)).r;
+  gl_FragColor = vec4(motion, l, clamp(length(vec2(gx, gy)) * 3.0, 0.0, 1.0), clamp(abs(l - lp) * 3.0, 0.0, 1.0));
+}`;
+
+/* M3 — Datamosh. Blocks that lost their I-frame keep predicting from the previous OUTPUT,
+   displaced by the real motion vectors of the incoming video, plus the motion-compensated
+   residual of the new frame. That is exactly what a decoder does when I-frames are deleted. */
+const FRAG_MOSH = `
+uniform sampler2D tDiffuse, tPrevOut, tPrevIn, tFlow, tBrush;
+uniform vec2 uGrid;
+uniform float uHasPrev, uKey, uHold, uSeed, uBloom, uFlowScale, uTurbT, uGainMul, uStep, uTrackMosh, uDrop;
+uniform float u_gain, u_residual, u_heal, u_intra, u_smooth, u_turb, u_gravity, u_brushForce;
+${BOXES}
+void main(){
+  vec3 cur = texture2D(tDiffuse, vUv).rgb;
+  if (uHasPrev < 0.5 || uKey > 0.5) { gl_FragColor = vec4(cur, 1.0); return; }
+  vec2 blk = floor(vUv * uGrid);
+  vec4 fb = texture2D(tFlow, (blk + 0.5) / uGrid);
+  vec4 fs = texture2D(tFlow, vUv);
+  vec2 mv = mix(fb.xy, fs.xy, u_smooth) * u_gain * uGainMul * uFlowScale;
+  vec2 tp = vUv * vec2(uRes.x / uRes.y, 1.0) * 2.5;
+  mv += (vec2(vnoise(tp + vec2(uTurbT, 1.7)), vnoise(tp + vec2(8.3, uTurbT * 1.21))) - 0.5) * u_turb * 24.0 * uStep;
+  mv.y -= u_gravity * 5.0 * uStep;
+  vec4 br = texture2D(tBrush, vUv);
+  mv += br.gb * u_brushForce * uStep;
+  float lost = step(hash12(blk + uSeed), uHold);
+  float thr = mix(0.6, 0.025, u_intra);
+  float intra = step(thr, fb.z) * step(hash12(blk * 1.31 + uSeed + 4.2), u_intra) * (1.0 - uBloom);
+  lost *= 1.0 - intra;
+  lost = max(lost, smoothstep(0.04, 0.4, br.r));
+  if (uTrackMosh > 0.0 && boxHit(vUv) >= 0) lost = max(lost, uTrackMosh);
+  vec2 o = mv / uRes;
+  vec3 pred = texture2D(tPrevOut, vUv - o).rgb;
+  vec3 resid = cur - texture2D(tPrevIn, vUv - o).rgb;
+  vec3 m = pred + resid * u_residual * (1.0 - uBloom) * (1.0 - uDrop);   // a dropped cut frame contributes no residual
+  m = mix(m, cur, u_heal);
+  gl_FragColor = vec4(mix(cur, clamp(m, 0.0, 1.0), lost), 1.0);
+}`;
+
+// Output of M3 with optional codec-analyzer vector overlay (kept out of the feedback buffer).
+const FRAG_MOSH_OUT = `
+uniform sampler2D tAcc, tFlow; uniform vec2 uGrid; uniform float u_vectors, u_gain;
+vec3 hue(float a){ return clamp(abs(fract(a / 6.2831853 + vec3(0.0, 2.0/3.0, 1.0/3.0)) * 6.0 - 3.0) - 1.0, 0.0, 1.0); }
+void main(){
+  vec3 col = texture2D(tAcc, vUv).rgb;
+  if (u_vectors > 0.001) {
+    vec2 pp = vUv * uRes, cell = uRes / uGrid, blk = floor(vUv * uGrid);
+    float a = 0.0; vec3 hc = vec3(1.0);
+    for (int j = -1; j <= 1; j++) for (int i = -1; i <= 1; i++) {
+      vec2 b = blk + vec2(float(i), float(j));
+      vec2 c = (b + 0.5) * cell;
+      vec2 v = texture2D(tFlow, (b + 0.5) / uGrid).xy * max(u_gain, 0.5) * 1.5;
+      float lv = length(v);
+      if (lv < 0.75) continue;
+      v *= min(1.0, cell.x * 1.4 / lv);
+      float w = smoothstep(1.4, 0.3, sdSeg(pp, c, c + v));
+      if (w > a) { a = w; hc = hue(atan(v.y, v.x)); }
+    }
+    vec2 gm = mod(pp, cell);
+    col = mix(col, col * 0.5, step(min(gm.x, gm.y), 1.0) * 0.5 * u_vectors);
+    col = mix(col, vec3(1.0), smoothstep(1.6, 0.6, length(pp - (blk + 0.5) * cell)) * 0.5 * u_vectors);
+    col = mix(col, hc, a * u_vectors);
+  }
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+/* M2a — Macroblock corruption (re-rolled at irregular, Poisson-timed moments via uSeed) */
+const FRAG_BLOCK = `
+uniform sampler2D tDiffuse;
+uniform float uSeed, uBoost;
+uniform float u_size, u_amount, u_shift, u_quant, u_grid;
+void main(){
+  vec2 fp = vUv * uRes;
+  float sz = max(u_size, 1.0);
+  vec2 blk = floor(fp / sz);
+  float t = uSeed;
+  float amt = clamp(u_amount + uBoost + uFlash * 0.7, 0.0, 1.0);
+  float mode = -1.0;
+  if (hash12(blk * 1.37 + t * 5.1) < amt) mode = hash12(blk + t * 3.3 + 7.0);
+  vec3 col;
+  if (mode >= 0.0 && mode < 0.4) {
+    col = texture2D(tDiffuse, (blk + 0.5) * sz / uRes).rgb;
+  } else if (mode >= 0.4 && mode < 0.75) {
+    vec2 o = (hash22(blk + t) - 0.5) * 2.0 * u_shift * sz;
+    col = texture2D(tDiffuse, clamp(vUv + o / uRes, 0.0, 1.0)).rgb;
+  } else if (mode >= 0.75) {
+    col = texture2D(tDiffuse, vUv).brg;
+  } else {
+    col = texture2D(tDiffuse, vUv).rgb;
+  }
+  if (u_quant > 0.0 && mode >= 0.0) { float q = mix(256.0, 4.0, u_quant); col = floor(col * q + 0.5) / q; }
+  vec2 g = step(mod(fp, sz), vec2(1.0));
+  col = mix(col, col * 0.55, max(g.x, g.y) * u_grid);
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+/* M2b — Pixel sort: one odd-even transposition step per pass, gated by a luma interval. */
+const FRAG_SORT = `
+uniform sampler2D tDiffuse;
+uniform float uIter, u_lo, u_hi, u_rows, u_dir, u_reverse;
+void main(){
+  vec2 p = floor(vUv * uRes);
+  bool vert = u_dir > 0.5;
+  float c = vert ? p.y : p.x;
+  float lane = vert ? p.x : p.y;
+  vec4 a = texture2D(tDiffuse, (p + 0.5) / uRes);
+  if (hash12(vec2(lane, 9.17)) > clamp(u_rows + uFlash * 0.5, 0.0, 1.0)) { gl_FragColor = a; return; }
+  float s = mod(c + uIter, 2.0) < 0.5 ? 1.0 : -1.0;
+  vec2 q = p + (vert ? vec2(0.0, s) : vec2(s, 0.0));
+  if (q.x < 0.0 || q.y < 0.0 || q.x >= uRes.x || q.y >= uRes.y) { gl_FragColor = a; return; }
+  vec4 b = texture2D(tDiffuse, (q + 0.5) / uRes);
+  float la = luma(a.rgb), lb = luma(b.rgb);
+  float lo = max(u_lo - uFlash * 0.4, 0.0);
+  bool ia = la >= lo && la <= u_hi, ib = lb >= lo && lb <= u_hi;
+  if (ia && ib) {
+    float ka = u_reverse > 0.5 ? -la : la, kb = u_reverse > 0.5 ? -lb : lb;
+    bool sw = s > 0.0 ? (ka > kb) : (ka < kb);
+    gl_FragColor = sw ? b : a;
+  } else gl_FragColor = a;
+}`;
+
+/* M1 — RGB split / chromatic aberration */
+const FRAG_RGB = `
+uniform sampler2D tDiffuse;
+uniform float uSeed, uBoost;
+uniform float u_amount, u_angle, u_radial, u_disp, u_phase, u_freq, u_jitter;
+void main(){
+  float a = radians(u_angle);
+  vec2 dir = vec2(cos(a), sin(a));
+  vec2 cc = vUv - 0.5; cc.x *= uRes.x / uRes.y;
+  vec2 d = mix(dir, cc * 2.0, u_radial);
+  float row = floor(vUv.y * uRes.y / 3.0);
+  float jr = hash12(vec2(row, uSeed));
+  float jit = jr > 0.86 - uFlash * 0.4 ? (hash12(vec2(row, uSeed + 5.0)) - 0.5) * u_jitter * (40.0 + uFlash * 120.0) : 0.0;
+  vec2 uv = vUv + vec2(jit / uRes.x, 0.0);
+  float wave = sin(vUv.y * u_freq * 6.2831853 + uTime * 3.0) * u_phase;
+  vec2 off = d * (u_amount + uBoost + wave + uFlash * 70.0) / uRes;
+  vec3 col = vec3(texture2D(tDiffuse, uv + off).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - off).b);
+  if (u_disp > 0.001) {
+    vec3 acc = vec3(0.0), ws = vec3(0.0);
+    for (int i = 0; i < 9; i++) {
+      float x = float(i) / 8.0;
+      vec3 w = max(vec3(0.0), 1.0 - abs(vec3(x) - vec3(1.0, 0.5, 0.0)) * 2.0);
+      acc += texture2D(tDiffuse, uv + off * (x * 2.0 - 1.0)).rgb * w; ws += w;
+    }
+    col = mix(col, acc / ws, u_disp);
+  }
+  gl_FragColor = vec4(col, 1.0);
+}`;
+
+/* M4 — Scanlines & analog signal noise */
+const FRAG_SCAN = `
+uniform sampler2D tDiffuse;
+uniform float u_period, u_lines, u_noise, u_flicker, u_chroma, u_tracking, u_roll, u_vignette, u_curve;
+void main(){
+  vec2 uv = vUv;
+  vec2 cc = uv * 2.0 - 1.0; cc *= 1.0 + u_curve * 0.18 * dot(cc, cc); uv = cc * 0.5 + 0.5;
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); return; }
+  float tr = u_tracking + uFlash * 0.8;
+  float band = smoothstep(0.72, 1.0, vnoise(vec2(uv.y * 6.0 - uTime * 1.3, uTime * 0.5)));
+  float ln = hash12(vec2(floor(uv.y * uRes.y / 2.0), floor(uTime * 50.0)));
+  uv.x += band * tr * 0.04 * (0.5 + ln);
+  uv.x += smoothstep(0.045, 0.0, uv.y) * tr * 0.03 * sin(uTime * 40.0 + uv.y * 300.0);
+  float ph = u_chroma * (1.0 + uFlash * 3.0) * (0.6 + 0.4 * sin(uTime * 7.0 + uv.y * 30.0)) / uRes.x;
+  vec3 col = vec3(texture2D(tDiffuse, uv + vec2(ph, 0.0)).r, texture2D(tDiffuse, uv).g, texture2D(tDiffuse, uv - vec2(ph, 0.0)).b);
+  float y = uv.y * uRes.y + uTime * u_roll * 30.0;
+  float s = 0.5 + 0.5 * cos(y * 6.2831853 / max(u_period, 1.0));
+  col *= 1.0 - u_lines * (1.0 - s);
+  float hum = 0.5 + 0.5 * sin((uv.y + uTime * u_roll * 0.08) * 6.2831853);
+  col *= 1.0 - u_flicker * 0.18 * hum * step(0.001, u_roll);
+  col *= 1.0 - u_flicker * 0.25 * vnoise(vec2(uTime * 23.0, 3.7));
+  col += (hash12(vUv * uRes + fract(uTime * 7.13) * 917.0) - 0.5) * (u_noise + uFlash * 0.4);
+  vec2 v = vUv - 0.5; col *= 1.0 - u_vignette * dot(v, v) * 2.2;
+  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);
+}`;
+
+/* M5 — Color grade / crush */
+const FRAG_GRADE = `
+uniform sampler2D tDiffuse;
+uniform float u_exposure, u_contrast, u_sat, u_gamma, u_hue, u_crush, u_bits, u_levels, u_dither;
+vec3 hueRot(vec3 c, float a){ vec3 k = vec3(0.57735); float ca = cos(a); return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca); }
+void main(){
+  vec3 c = texture2D(tDiffuse, vUv).rgb;
+  c *= exp2(u_exposure);
+  c = (c - 0.5) * (u_contrast + uFlash * 0.6) + 0.5;
+  c = mix(vec3(luma(c)), c, u_sat + uFlash * 1.5);
+  c = hueRot(c, radians(u_hue) + uFlash * 1.2);
+  c = max(c - u_crush, 0.0) / max(1.0 - u_crush, 0.001);
+  c = pow(clamp(c, 0.0, 1.0), vec3(1.0 / max(u_gamma, 0.01)));
+  float bits = mix(u_bits, 2.0, clamp(uFlash, 0.0, 1.0));
+  if (bits < 7.99) { float q = exp2(floor(bits)) - 1.0; float d = (hash12(gl_FragCoord.xy) - 0.5) * u_dither; c = floor(c * q + 0.5 + d) / q; }
+  if (u_levels >= 2.0) { float L = u_levels - 1.0; c = floor(c * L + 0.5) / L; }
+  gl_FragColor = vec4(clamp(c, 0.0, 1.0), 1.0);
+}`;
+
+/* M6 — Tracking HUD: in-box effects + the 2D overlay (boxes, labels, links) composited on top */
+const FRAG_TRACK = `
+uniform sampler2D tDiffuse, tOverlay;
+uniform float u_fx, u_fxAmt;
+${BOXES}
+vec3 thermal(float t){
+  vec3 c0 = vec3(0.0, 0.0, 0.06), c1 = vec3(0.25, 0.0, 0.6), c2 = vec3(0.9, 0.05, 0.35), c3 = vec3(1.0, 0.6, 0.0), c4 = vec3(1.0, 1.0, 0.85);
+  t = clamp(t, 0.0, 1.0) * 4.0;
+  if (t < 1.0) return mix(c0, c1, t); if (t < 2.0) return mix(c1, c2, t - 1.0); if (t < 3.0) return mix(c2, c3, t - 2.0); return mix(c3, c4, t - 3.0);
+}
+void main(){
+  vec3 base = texture2D(tDiffuse, vUv).rgb, col = base;
+  int fx = int(u_fx + 0.5);
+  if (fx > 0) {
+    int h = boxHit(vUv);
+    if (h >= 0) {
+      vec4 b = uBoxes[h];
+      vec3 e = base;
+      if (fx == 1) e = 1.0 - base;
+      else if (fx == 2) { float cell = mix(3.0, 28.0, u_fxAmt); e = texture2D(tDiffuse, (floor(vUv * uRes / cell) + 0.5) * cell / uRes).rgb; }
+      else if (fx == 3) e = thermal(luma(base) * 1.15);
+      else if (fx == 4) e = vec3(step(0.5, luma(base) + (hash12(gl_FragCoord.xy) - 0.5) * 0.25));
+      else if (fx == 5) { vec2 c = (b.xy + b.zw) * 0.5; e = texture2D(tDiffuse, c + (vUv - c) / (1.0 + u_fxAmt * 2.0)).rgb; }
+      else if (fx == 6) { vec2 o = vec2(u_fxAmt * 14.0 / uRes.x, 0.0); e = vec3(texture2D(tDiffuse, vUv + o).r, base.g, texture2D(tDiffuse, vUv - o).b); }
+      col = (fx == 2 || fx == 5) ? e : mix(base, e, u_fxAmt);
+    }
+  }
+  vec4 ov = texture2D(tOverlay, vUv);
+  gl_FragColor = vec4(mix(col, ov.rgb, ov.a), 1.0);
+}`;
+
+/* A/B wipe */
+const FRAG_COMPARE = `
+uniform sampler2D tDiffuse;
+uniform sampler2D tSource;
+uniform float uSplit;
+void main(){
+  vec3 a = texture2D(tDiffuse, vUv).rgb;
+  if (uSplit < 0.0) { gl_FragColor = vec4(a, 1.0); return; }
+  vec3 c = vUv.x < uSplit ? texture2D(tSource, vUv).rgb : a;
+  float e = abs(vUv.x - uSplit) * uRes.x;
+  gl_FragColor = vec4(mix(vec3(0.91, 0.64, 0.23), c, smoothstep(0.5, 1.5, e)), 1.0);
+}`;
+
+/* ============================================================
+   ENGINE
+   ============================================================ */
+const canvas = document.getElementById('glcanvas');
+const renderer = new THREE.WebGLRenderer({ canvas, antialias: false, preserveDrawingBuffer: true, powerPreference: 'high-performance' });
+renderer.setPixelRatio(1);
+renderer.autoClear = false;
+
+const allMats = [];
+function makeMat(frag, uniforms = {}) {
+  const m = new THREE.ShaderMaterial({
+    uniforms: Object.assign({ uRes: { value: new THREE.Vector2(1, 1) }, uTime: { value: 0 }, uFlash: { value: 0 } }, uniforms),
+    vertexShader: VERT, fragmentShader: COMMON + frag, depthTest: false, depthWrite: false,
+  });
+  allMats.push(m);
+  return m;
+}
+function paramUniforms(id) {
+  const u = {};
+  for (const p of DEFS[id].params) if (p.k) u['u_' + p.k] = { value: p.v };
+  return u;
+}
+function makeRT(w = 1, h = 1, opts = {}) {
+  return new THREE.WebGLRenderTarget(w, h, Object.assign({ type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false }, opts));
+}
+const BOX_LIST = Array.from({ length: 24 }, () => new THREE.Vector4());
+const boxUniforms = () => ({ uBoxes: { value: BOX_LIST }, uBoxCount: { value: 0 } });
+
+/* ---------- Motion engine: luma pyramid → block matching → smoothed vector field, brush, analysis ---------- */
+class MotionEngine {
+  constructor() {
+    this.quad = new FullScreenQuad();
+    this.lumaMat = makeMat(FRAG_LUMA, { tSource: { value: null }, uPx: { value: new THREE.Vector2() } });
+    this.matchMat = makeMat(FRAG_MATCH, { tCur: { value: null }, tPrev: { value: null }, uQRes: { value: new THREE.Vector2() }, uGrid: { value: new THREE.Vector2() }, uBlockQ: { value: 4 }, uRange: { value: 6 }, uLambda: { value: 0.004 }, uScale: { value: 4 } });
+    this.flowMat = makeMat(FRAG_FLOWS, { tRaw: { value: null }, tPrevS: { value: null }, uGrid: { value: new THREE.Vector2() }, uSpatial: { value: 0 }, uTemporal: { value: 0 }, uFreeze: { value: 0 }, uUpdate: { value: 1 } });
+    this.brushMat = makeMat(FRAG_BRUSH, { tPrev: { value: null }, uA: { value: new THREE.Vector2() }, uB: { value: new THREE.Vector2() }, uVel: { value: new THREE.Vector2() }, uActive: { value: 0 }, uRadius: { value: 0.08 }, uDecay: { value: 0.98 }, uAspect: { value: 1 } });
+    this.anMat = makeMat(FRAG_ANALYSIS, { tLuma: { value: null }, tLumaPrev: { value: null }, tFlow: { value: null }, uQPx: { value: new THREE.Vector2() } });
+    const NEAR = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter };
+    this.lumaA = makeRT(); this.lumaB = makeRT();
+    this.raw = makeRT(1, 1, NEAR);
+    this.flowA = makeRT(); this.flowB = makeRT();
+    this.brushA = makeRT(); this.brushB = makeRT();
+    this.AW = 96; this.AH = 54;
+    this.an = makeRT(96, 54, { type: THREE.UnsignedByteType, ...NEAR });
+    this.anBuf = new Uint8Array(96 * 54 * 4);
+    this.block = 16; this.W = 1; this.H = 1; this.hasLuma = false; this.anFresh = false;
+  }
+  setSize(W, H, block) {
+    this.W = W; this.H = H; this.block = block;
+    const QW = Math.max(4, Math.ceil(W / 4)), QH = Math.max(4, Math.ceil(H / 4));
+    this.QW = QW; this.QH = QH;
+    this.lumaA.setSize(QW, QH); this.lumaB.setSize(QW, QH);
+    this.brushA.setSize(QW, QH); this.brushB.setSize(QW, QH);
+    for (const rt of [this.brushA, this.brushB]) { renderer.setRenderTarget(rt); renderer.setClearColor(0x000000, 0); renderer.clear(); }
+    this.GW = Math.max(1, Math.ceil(W / block)); this.GH = Math.max(1, Math.ceil(H / block));
+    this.raw.setSize(this.GW, this.GH); this.flowA.setSize(this.GW, this.GH); this.flowB.setSize(this.GW, this.GH);
+    for (const rt of [this.raw, this.flowA, this.flowB]) { renderer.setRenderTarget(rt); renderer.setClearColor(0x000000, 0); renderer.clear(); }
+    this.AW = 96; this.AH = Math.max(8, Math.round(96 * H / W));
+    this.an.setSize(this.AW, this.AH); this.anBuf = new Uint8Array(this.AW * this.AH * 4);
+    renderer.setRenderTarget(null);
+    this.hasLuma = false;
+  }
+  draw(mat, target) { this.quad.material = mat; renderer.setRenderTarget(target); this.quad.render(renderer); }
+  get flowTex() { return this.flowA.texture; }
+  get brushTex() { return this.brushA.texture; }
+  update(src, newFrame, opt) {
+    const P = state.mods.mosh.values;
+    // brush (every render frame)
+    const b = this.brushMat.uniforms;
+    b.tPrev.value = this.brushA.texture; b.uAspect.value = this.W / this.H;
+    b.uRadius.value = P.brushSize; b.uDecay.value = Math.exp(-opt.dt / Math.max(0.05, P.brushHold));
+    b.uActive.value = opt.brush ? 1 : 0;
+    if (opt.brush) { b.uA.value.copy(opt.brush.a); b.uB.value.copy(opt.brush.b); b.uVel.value.copy(opt.brush.vel); }
+    this.draw(this.brushMat, this.brushB);
+    [this.brushA, this.brushB] = [this.brushB, this.brushA];
+    if (newFrame) {
+      const l = this.lumaMat.uniforms;
+      l.tSource.value = src; l.uPx.value.set(1 / this.W, 1 / this.H);
+      this.draw(this.lumaMat, this.lumaA);
+      if (!this.hasLuma) { this.draw(this.lumaMat, this.lumaB); this.hasLuma = true; }
+      const m = this.matchMat.uniforms;
+      m.tCur.value = this.lumaA.texture; m.tPrev.value = this.lumaB.texture;
+      m.uQRes.value.set(this.QW, this.QH); m.uGrid.value.set(this.GW, this.GH);
+      m.uBlockQ.value = this.block / 4; m.uRange.value = Math.min(8, Math.round(P.range / 4)); m.uScale.value = this.W / this.QW;
+      this.draw(this.matchMat, this.raw);
+    }
+    const f = this.flowMat.uniforms;
+    f.tRaw.value = this.raw.texture; f.tPrevS.value = this.flowA.texture; f.uGrid.value.set(this.GW, this.GH);
+    f.uSpatial.value = P.smooth; f.uTemporal.value = P.temporal; f.uFreeze.value = opt.freeze ? 1 : 0; f.uUpdate.value = newFrame ? 1 : 0;
+    this.draw(this.flowMat, this.flowB);
+    [this.flowA, this.flowB] = [this.flowB, this.flowA];
+    this.anFresh = false;
+    if (newFrame) {
+      if (opt.analyze) {
+        const a = this.anMat.uniforms;
+        a.tLuma.value = this.lumaA.texture; a.tLumaPrev.value = this.lumaB.texture; a.tFlow.value = this.flowA.texture; a.uQPx.value.set(1 / this.QW, 1 / this.QH);
+        this.draw(this.anMat, this.an);
+        renderer.readRenderTargetPixels(this.an, 0, 0, this.AW, this.AH, this.anBuf);
+        this.anFresh = true;
+      }
+      [this.lumaA, this.lumaB] = [this.lumaB, this.lumaA];
+    }
+    renderer.setRenderTarget(null);
+  }
+}
+
+class DatamoshPass extends Pass {
+  constructor(engine) {
+    super();
+    this.engine = engine;
+    this.mat = makeMat(FRAG_MOSH, Object.assign({
+      tDiffuse: { value: null }, tPrevOut: { value: null }, tPrevIn: { value: null }, tFlow: { value: null }, tBrush: { value: null },
+      uGrid: { value: new THREE.Vector2(1, 1) }, uHasPrev: { value: 0 }, uKey: { value: 0 }, uHold: { value: 0 }, uSeed: { value: 0 },
+      uBloom: { value: 0 }, uFlowScale: { value: 1 }, uTurbT: { value: 0 }, uGainMul: { value: 1 }, uStep: { value: 1 }, uTrackMosh: { value: 0 }, uDrop: { value: 0 },
+    }, boxUniforms(), paramUniforms('mosh')));
+    this.outMat = makeMat(FRAG_MOSH_OUT, { tAcc: { value: null }, tFlow: { value: null }, uGrid: { value: new THREE.Vector2(1, 1) }, u_vectors: { value: 0 }, u_gain: { value: 1 } });
+    this.copy = makeMat(FRAG_COPY, { tDiffuse: { value: null } });
+    this.quad = new FullScreenQuad(this.mat);
+    this.accA = makeRT(); this.accB = makeRT(); this.prevIn = makeRT();
+    this.hasPrev = false; this.forceKey = false;
+  }
+  setSize(w, h) { this.accA.setSize(w, h); this.accB.setSize(w, h); this.prevIn.setSize(w, h); this.hasPrev = false; }
+  render(renderer, writeBuffer, readBuffer) {
+    const e = this.engine, u = this.mat.uniforms;
+    u.tDiffuse.value = readBuffer.texture; u.tPrevOut.value = this.accB.texture; u.tPrevIn.value = this.prevIn.texture;
+    u.tFlow.value = e.flowTex; u.tBrush.value = e.brushTex; u.uGrid.value.set(e.GW, e.GH); u.uHasPrev.value = this.hasPrev ? 1 : 0;
+    this.quad.material = this.mat;
+    renderer.setRenderTarget(this.accA); this.quad.render(renderer);
+    const o = this.outMat.uniforms;
+    o.tAcc.value = this.accA.texture; o.tFlow.value = e.flowTex; o.uGrid.value.set(e.GW, e.GH);
+    this.quad.material = this.outMat;
+    renderer.setRenderTarget(this.renderToScreen ? null : writeBuffer); this.quad.render(renderer);
+    this.copy.uniforms.tDiffuse.value = readBuffer.texture;
+    this.quad.material = this.copy;
+    renderer.setRenderTarget(this.prevIn); this.quad.render(renderer);
+    [this.accA, this.accB] = [this.accB, this.accA];
+    this.hasPrev = true;
+  }
+}
+
+class BlockSortPass extends Pass {
+  constructor() {
+    super();
+    this.blockMat = makeMat(FRAG_BLOCK, Object.assign({ tDiffuse: { value: null }, uSeed: { value: 0 }, uBoost: { value: 0 } }, paramUniforms('block')));
+    this.sortMat = makeMat(FRAG_SORT, Object.assign({ tDiffuse: { value: null }, uIter: { value: 0 } }, paramUniforms('block')));
+    this.quad = new FullScreenQuad(this.blockMat);
+    this.a = makeRT(); this.b = makeRT();
+    this.iterations = 0;
+  }
+  setSize(w, h) { this.a.setSize(w, h); this.b.setSize(w, h); }
+  render(renderer, writeBuffer, readBuffer) {
+    const out = this.renderToScreen ? null : writeBuffer;
+    const n = this.iterations;
+    this.blockMat.uniforms.tDiffuse.value = readBuffer.texture;
+    this.quad.material = this.blockMat;
+    renderer.setRenderTarget(n > 0 ? this.a : out); this.quad.render(renderer);
+    if (n <= 0) return;
+    let src = this.a, dst = this.b;
+    this.quad.material = this.sortMat;
+    for (let i = 0; i < n; i++) {
+      this.sortMat.uniforms.tDiffuse.value = src.texture;
+      this.sortMat.uniforms.uIter.value = i;
+      renderer.setRenderTarget(i === n - 1 ? out : dst); this.quad.render(renderer);
+      [src, dst] = [dst, src];
+    }
+  }
+}
+
+const engine = new MotionEngine();
+const composer = new EffectComposer(renderer);
+const sourceMat = makeMat(FRAG_SOURCE, { tSource: { value: null } });
+const sourcePass = new ShaderPass(sourceMat);
+const rgbMat = makeMat(FRAG_RGB, Object.assign({ tDiffuse: { value: null }, uSeed: { value: 0 }, uBoost: { value: 0 } }, paramUniforms('rgb')));
+const scanMat = makeMat(FRAG_SCAN, Object.assign({ tDiffuse: { value: null } }, paramUniforms('scan')));
+const gradeMat = makeMat(FRAG_GRADE, Object.assign({ tDiffuse: { value: null } }, paramUniforms('grade')));
+const overlay = document.createElement('canvas');
+overlay.width = 2; overlay.height = 2;
+const octx = overlay.getContext('2d');
+const overlayTex = new THREE.CanvasTexture(overlay);
+overlayTex.minFilter = THREE.LinearFilter; overlayTex.generateMipmaps = false;
+const trackMat = makeMat(FRAG_TRACK, Object.assign({ tDiffuse: { value: null }, tOverlay: { value: overlayTex } }, boxUniforms(), paramUniforms('track')));
+const compareMat = makeMat(FRAG_COMPARE, { tDiffuse: { value: null }, tSource: { value: null }, uSplit: { value: -1 } });
+const moshPass = new DatamoshPass(engine);
+const blockPass = new BlockSortPass();
+const PASSES = { mosh: moshPass, block: blockPass, rgb: new ShaderPass(rgbMat), grade: new ShaderPass(gradeMat), scan: new ShaderPass(scanMat), track: new ShaderPass(trackMat) };
+const MATS = { mosh: [moshPass.mat, moshPass.outMat], block: [blockPass.blockMat, blockPass.sortMat], rgb: [rgbMat], grade: [gradeMat], scan: [scanMat], track: [trackMat] };
+const comparePass = new ShaderPass(compareMat);
+
+composer.addPass(sourcePass);
+for (const id of DEFAULT_ORDER) composer.addPass(PASSES[id]);
+composer.addPass(comparePass);
+function rebuildChain() {
+  composer.passes = [sourcePass, ...state.order.map(id => PASSES[id]), comparePass];
+  for (const id in PASSES) PASSES[id].enabled = state.mods[id].on;
+}
+
+/* ---------- Media sources ---------- */
+const demoCv = document.createElement('canvas');
+demoCv.width = 1280; demoCv.height = 720;
+const dctx = demoCv.getContext('2d');
+const demoTex = new THREE.CanvasTexture(demoCv);
+demoTex.minFilter = THREE.LinearFilter; demoTex.generateMipmaps = false;
+
+const video = document.createElement('video');
+video.loop = true; video.muted = true; video.playsInline = true; video.crossOrigin = 'anonymous';
+let camStream = null;
+
+const DEMO_SRC = () => ({ kind: 'demo', tex: demoTex, w: 1280, h: 720, name: 'DEMO REEL', url: null });
+let media = DEMO_SRC();
+
+function stopCamera() { if (camStream) { camStream.getTracks().forEach(t => t.stop()); camStream = null; video.srcObject = null; } }
+function setSource(m) {
+  if (media.url && media.url !== m.url) URL.revokeObjectURL(media.url);
+  if (media.tex && media.tex !== demoTex && media.tex !== m.tex) media.tex.dispose();
+  if (m.kind !== 'camera') stopCamera();
+  media = m;
+  media.fresh = true;
+  sourceMat.uniforms.tSource.value = m.tex;
+  compareMat.uniforms.tSource.value = m.tex;
+  resizeEngine();
+  $('hudSrc').textContent = m.name.toUpperCase();
+  const isVid = m.kind === 'video';
+  scrub.disabled = !isVid;
+  playBtn.disabled = m.kind === 'image' || m.kind === 'camera';
+  $('durLabel').textContent = isVid ? fmtDur(video.duration) : (m.kind === 'image' ? 'still' : m.kind === 'camera' ? 'live' : 'reel');
+  updatePlayIcon();
+}
+
+async function loadFile(file) {
+  if (!file) return;
+  const url = URL.createObjectURL(file);
+  if (file.type.startsWith('video/') || /\.(mp4|webm|mov|m4v)$/i.test(file.name)) {
+    stopCamera();
+    video.src = url;
+    try {
+      await new Promise((res, rej) => { video.onloadeddata = res; video.onerror = () => rej(new Error('decode')); });
+      await video.play().catch(() => {});
+    } catch (e) {
+      toast(`Couldn't decode ${file.name}. Use H.264 MP4 or VP8/VP9 WebM.`); URL.revokeObjectURL(url); return;
+    }
+    const tex = new THREE.VideoTexture(video);
+    tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    setSource({ kind: 'video', tex, w: video.videoWidth, h: video.videoHeight, name: file.name, url });
+    toast(`Loaded ${file.name} · ${video.videoWidth}×${video.videoHeight}`);
+  } else if (file.type.startsWith('image/')) {
+    const img = new Image();
+    img.onload = () => {
+      video.pause();
+      const tex = new THREE.Texture(img);
+      tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false; tex.needsUpdate = true;
+      setSource({ kind: 'image', tex, w: img.naturalWidth, h: img.naturalHeight, name: file.name, url });
+      toast(`Loaded ${file.name}. Stills have no motion: use turbulence, melt, bloom or drag to smear.`);
+    };
+    img.onerror = () => { toast(`Couldn't read ${file.name}. Use PNG or JPG.`); URL.revokeObjectURL(url); };
+    img.src = url;
+  } else {
+    toast('Unsupported file. Drop an MP4, WebM, PNG or JPG.');
+    URL.revokeObjectURL(url);
+  }
+}
+
+async function startCamera() {
+  if (!navigator.mediaDevices?.getUserMedia) return toast('No camera API in this browser.');
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    stopCamera();
+    camStream = s;
+    video.removeAttribute('src'); video.srcObject = s;
+    await new Promise(res => { if (video.readyState >= 2) res(); else video.onloadeddata = res; });
+    await video.play().catch(() => {});
+    const tex = new THREE.VideoTexture(video);
+    tex.minFilter = THREE.LinearFilter; tex.generateMipmaps = false;
+    setSource({ kind: 'camera', tex, w: video.videoWidth, h: video.videoHeight, name: 'Live camera', url: null });
+    toast('Camera live. Move around: vectors and tracking follow you.');
+  } catch (e) {
+    toast(hosted() ? 'The camera is blocked inside this page. Open the HTML file directly in Chrome to use it.' : 'Camera access was refused.');
+  }
+}
+
+/* ---------- Demo reel: three scenes with hard cuts at random moments, so the mosh has real motion and real cuts to chew on ---------- */
+let seedR = 20241018;
+const rnd = () => (seedR = (seedR * 16807) % 2147483647) / 2147483647;
+const ridge = [0, 1, 2].map(() => Array.from({ length: 96 }, () => rnd()));
+const towers = Array.from({ length: 34 }, () => ({ w: 46 + rnd() * 90, h: 120 + rnd() * 320, hue: 190 + rnd() * 60, lit: rnd() }));
+const towersW = towers.reduce((s, t) => s + t.w + 8, 0);
+const balls = Array.from({ length: 7 }, (_, i) => ({ x: 100 + rnd() * 1080, y: 100 + rnd() * 520, vx: (rnd() - .5) * 620, vy: (rnd() - .5) * 520, r: 28 + rnd() * 54, h: (i * 53 + 10) % 360 }));
+const reel = { scene: 0, start: 0, nextCut: 6, pan: 0, last: 0 };
+
+function ridgeAt(arr, x) { const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return arr[((i % 96) + 96) % 96] * (1 - u) + arr[(((i + 1) % 96) + 96) % 96] * u; }
+function sceneCity(lt, t, dt) {
+  const c = dctx, W = 1280, H = 720;
+  const speed = 60 + 420 * Math.pow(noise1(t * 0.35 + 3), 2);
+  reel.pan += speed * dt;
+  const g = c.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, '#0b1d3a'); g.addColorStop(0.55, '#c0526a'); g.addColorStop(1, '#f2a65a');
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  c.fillStyle = 'rgba(255,230,180,.95)'; c.beginPath(); c.arc(860 - reel.pan * 0.03 % 400, 330, 90, 0, 7); c.fill();
+  [[0.15, '#5b3a6e', 360, 140], [0.35, '#3a2a55', 430, 120], [0.6, '#22203d', 500, 110]].forEach(([f, col, base, amp], k) => {
+    c.fillStyle = col; c.beginPath(); c.moveTo(0, H);
+    for (let x = 0; x <= W; x += 16) c.lineTo(x, base - ridgeAt(ridge[k], (x + reel.pan * f) / 90) * amp);
+    c.lineTo(W, H); c.fill();
+  });
+  let x = -((reel.pan * 1.0) % towersW);
+  while (x < W) {
+    for (const tw of towers) {
+      if (x > W) break;
+      if (x + tw.w > 0) {
+        const top = H - 60 - tw.h;
+        c.fillStyle = `hsl(${tw.hue},28%,13%)`; c.fillRect(x, top, tw.w, tw.h + 60);
+        c.fillStyle = `rgba(255,${190 + tw.lit * 50},120,.85)`;
+        for (let wy = top + 14; wy < H - 70; wy += 26) for (let wx = x + 8; wx < x + tw.w - 10; wx += 16)
+          if (((Math.round(wx - x) * 7 + Math.round(wy) * 13) ^ (tw.h | 0)) % 5 < 2 * tw.lit + 1) c.fillRect(wx, wy, 7, 11);
+      }
+      x += tw.w + 8;
+    }
+  }
+  c.fillStyle = '#121218'; c.fillRect(0, H - 60, W, 60);
+  c.fillStyle = '#e9d36b';
+  for (let i = 0; i < 12; i++) { const sx = ((i * 140 - reel.pan * 2.2) % 1680 + 1680) % 1680 - 200; c.fillRect(sx, H - 34, 70, 6); }
+}
+function sceneTunnel(lt, t, dt) {
+  const c = dctx, W = 1280, H = 720;
+  c.fillStyle = '#05040a'; c.fillRect(0, 0, W, H);
+  const cx = W / 2 + (noise1(t * 0.5) - 0.5) * 360, cy = H / 2 + (noise1(t * 0.43 + 20) - 0.5) * 240;
+  const spd = 0.8 + 2.2 * noise1(t * 0.3 + 7);
+  reel.pan += spd * dt;
+  for (let i = 26; i >= 0; i--) {
+    const z = i - (reel.pan % 1);
+    const r = 22 * Math.pow(1.19, z);
+    const rot = reel.pan * 0.35 + z * 0.12 * Math.sin(t * 0.2);
+    c.save(); c.translate(cx, cy); c.rotate(rot);
+    c.fillStyle = (i + Math.floor(reel.pan)) % 2 ? `hsl(${(z * 14 + t * 30) % 360},85%,55%)` : '#0c0a14';
+    c.fillRect(-r, -r, r * 2, r * 2);
+    c.restore();
+  }
+  c.fillStyle = '#fff'; c.beginPath(); c.arc(cx, cy, 10, 0, 7); c.fill();
+}
+function sceneBalls(lt, t, dt) {
+  const c = dctx, W = 1280, H = 720;
+  const g = c.createRadialGradient(W / 2, H / 2, 50, W / 2, H / 2, 800);
+  g.addColorStop(0, '#1d2733'); g.addColorStop(1, '#07090c');
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  const bars = ['#c0c0c0', '#c0c000', '#00c0c0', '#00c000', '#c000c0', '#c00000', '#0000c0'];
+  const bx = 80 + Math.sin(lt * 0.7) * 160;
+  bars.forEach((col, i) => { c.fillStyle = col; c.fillRect(bx + i * 60, 80, 60, 220); });
+  c.save(); c.translate(W - 330, 470); c.rotate(Math.sin(t * 0.6) * 0.25);
+  c.font = '700 120px "IBM Plex Sans Condensed", system-ui, sans-serif'; c.fillStyle = '#f4f4f4'; c.textAlign = 'center';
+  c.fillText('TAKE 3', 0, 40); c.restore(); c.textAlign = 'left';
+  for (const b of balls) {
+    const kick = 1 + 1.5 * Math.pow(noise1(t * 0.8 + b.h), 3);
+    b.x += b.vx * dt * kick; b.y += b.vy * dt * kick;
+    if (b.x < b.r || b.x > W - b.r) { b.vx *= -1; b.x = Math.min(W - b.r, Math.max(b.r, b.x)); }
+    if (b.y < b.r || b.y > H - b.r) { b.vy *= -1; b.y = Math.min(H - b.r, Math.max(b.r, b.y)); }
+    const rg = c.createRadialGradient(b.x - b.r * .3, b.y - b.r * .3, 4, b.x, b.y, b.r);
+    rg.addColorStop(0, `hsl(${b.h},100%,85%)`); rg.addColorStop(1, `hsl(${b.h},80%,35%)`);
+    c.fillStyle = rg; c.beginPath(); c.arc(b.x, b.y, b.r, 0, 7); c.fill();
+  }
+}
+const SCENES = [sceneCity, sceneTunnel, sceneBalls];
+function drawDemo(t) {
+  if (t >= reel.nextCut) {
+    reel.scene = (reel.scene + 1 + (Math.random() < 0.35 ? 1 : 0)) % SCENES.length;
+    reel.start = t; reel.nextCut = t + 2.2 + expRand(3.5);
+  }
+  const dt = Math.min(0.1, Math.max(0, t - reel.last)); reel.last = t;
+  SCENES[reel.scene](t - reel.start, t, dt);
+  const c = dctx;
+  c.fillStyle = 'rgba(0,0,0,.7)'; c.fillRect(1280 / 2 - 128, 30, 256, 38);
+  c.fillStyle = '#fff'; c.font = '500 24px "JetBrains Mono", ui-monospace, monospace'; c.textAlign = 'center';
+  c.fillText(timecode(t + 3600), 640, 58); c.textAlign = 'left';
+}
+
+/* ---------- Sizing ---------- */
+const $ = id => document.getElementById(id);
+const viewer = $('viewer');
+function resizeEngine() {
+  const cap = +$('qualSel').value;
+  let w = media.w || 1280, h = media.h || 720;
+  const s = cap >= 4096 ? Math.min(1, 4096 / Math.max(w, h)) : Math.min(1, cap / Math.min(w, h));
+  w = Math.max(16, Math.round(w * s / 4) * 4); h = Math.max(16, Math.round(h * s / 4) * 4);
+  renderer.setSize(w, h, false);
+  composer.setSize(w, h);
+  engine.setSize(w, h, state.mods.mosh.values.block);
+  for (const m of allMats) m.uniforms.uRes.value.set(w, h);
+  const os = Math.min(1, 1920 / w);
+  overlay.width = Math.round(w * os); overlay.height = Math.round(h * os);
+  overlayTex.dispose();
+  $('hudRes').textContent = `${w}×${h}`;
+  tracks.length = 0;
+  fitCanvas();
+}
+function fitCanvas() {
+  const r = viewer.getBoundingClientRect();
+  const pad = 24;
+  const aw = Math.max(10, r.width - pad), ah = Math.max(10, r.height - pad);
+  const ar = canvas.width / canvas.height;
+  let cw = aw, ch = aw / ar;
+  if (ch > ah) { ch = ah; cw = ah * ar; }
+  canvas.style.width = cw + 'px'; canvas.style.height = ch + 'px';
+}
+new ResizeObserver(fitCanvas).observe(viewer);
+
+/* ============================================================
+   TRACKING — CPU side: detect blobs / points on the analysis map,
+   associate them over time, draw the HUD overlay.
+   ============================================================ */
+const tracks = [];
+let nextTrackId = 1;
+let field = new Float32Array(1), fieldB = new Float32Array(1), labels = new Int32Array(1);
+
+function detect(buf, AW, AH, V) {
+  const N = AW * AH;
+  if (field.length !== N) { field = new Float32Array(N); fieldB = new Float32Array(N); labels = new Int32Array(N); }
+  const ch = [0, 1, 2, 1][V.source] ?? 0, inv = V.source === 3;
+  for (let i = 0; i < N; i++) { const v = buf[i * 4 + ch] / 255; fieldB[i] = inv ? 1 - v : v; }
+  for (let y = 0; y < AH; y++) for (let x = 0; x < AW; x++) {
+    let s = 0, n = 0;
+    for (let j = -1; j <= 1; j++) for (let i = -1; i <= 1; i++) { const xx = x + i, yy = y + j; if (xx >= 0 && yy >= 0 && xx < AW && yy < AH) { s += fieldB[yy * AW + xx]; n++; } }
+    field[y * AW + x] = s / n;
+  }
+  const thr = V.thresh, out = [];
+  if (V.mode === 1) {
+    const cand = [];
+    for (let y = 2; y < AH - 2; y++) for (let x = 2; x < AW - 2; x++) {
+      const v = field[y * AW + x]; if (v < thr) continue;
+      let peak = true;
+      for (let j = -2; j <= 2 && peak; j++) for (let i = -2; i <= 2; i++) if ((i || j) && field[(y + j) * AW + x + i] > v) { peak = false; break; }
+      if (peak) cand.push({ x, y, v });
+    }
+    cand.sort((a, b) => b.v - a.v);
+    const sw = V.size / canvas.width, sh = V.size / canvas.height, minD = 5;
+    for (const p of cand) {
+      if (out.length >= V.max) break;
+      if (out.some(o => Math.hypot(o.gx - p.x, o.gy - p.y) < minD)) continue;
+      out.push({ gx: p.x, gy: p.y, x: (p.x + .5) / AW, y: (p.y + .5) / AH, w: sw, h: sh, score: p.v });
+    }
+  } else {
+    labels.fill(0);
+    const comps = [], stack = [];
+    let lab = 0;
+    for (let i = 0; i < N; i++) {
+      if (labels[i] || field[i] < thr) continue;
+      lab++; labels[i] = lab; stack.push(i);
+      let minx = 1e9, miny = 1e9, maxx = -1, maxy = -1, cnt = 0, sum = 0;
+      while (stack.length) {
+        const k = stack.pop(), x = k % AW, y = (k - x) / AW;
+        cnt++; sum += field[k];
+        if (x < minx) minx = x; if (x > maxx) maxx = x; if (y < miny) miny = y; if (y > maxy) maxy = y;
+        const nb = [x > 0 ? k - 1 : -1, x < AW - 1 ? k + 1 : -1, y > 0 ? k - AW : -1, y < AH - 1 ? k + AW : -1];
+        for (const q of nb) if (q >= 0 && !labels[q] && field[q] >= thr) { labels[q] = lab; stack.push(q); }
+      }
+      if (cnt >= V.minSize) comps.push({ minx, miny, maxx, maxy, cnt, score: sum / cnt });
+    }
+    comps.sort((a, b) => b.cnt - a.cnt);
+    for (const cp of comps.slice(0, V.max)) {
+      const w = (cp.maxx - cp.minx + 1) / AW, h = (cp.maxy - cp.miny + 1) / AH;
+      out.push({ x: (cp.minx / AW) + w / 2, y: (cp.miny / AH) + h / 2, w: w + 0.01, h: h + 0.015, score: cp.score });
+    }
+  }
+  return out;
+}
+
+function associate(dets, V) {
+  const pairs = [];
+  tracks.forEach((t, ti) => dets.forEach((d, di) => { const dd = Math.hypot(t.x - d.x, t.y - d.y); if (dd < 0.25) pairs.push([dd, ti, di]); }));
+  pairs.sort((a, b) => a[0] - b[0]);
+  const usedT = new Set(), usedD = new Set();
+  const k = 1 - V.smooth;
+  for (const [, ti, di] of pairs) {
+    if (usedT.has(ti) || usedD.has(di)) continue;
+    usedT.add(ti); usedD.add(di);
+    const t = tracks[ti], d = dets[di];
+    const nx = t.x + (d.x - t.x) * k, ny = t.y + (d.y - t.y) * k;
+    t.vx = nx - t.x; t.vy = ny - t.y;
+    t.x = nx; t.y = ny; t.w += (d.w - t.w) * k; t.h += (d.h - t.h) * k;
+    t.score = d.score; t.miss = 0; t.age++;
+  }
+  tracks.forEach((t, ti) => { if (!usedT.has(ti)) t.miss++; });
+  dets.forEach((d, di) => { if (!usedD.has(di)) tracks.push({ id: nextTrackId++, x: d.x, y: d.y, w: d.w, h: d.h, vx: 0, vy: 0, score: d.score, miss: 0, age: 0 }); });
+  for (let i = tracks.length - 1; i >= 0; i--) if (tracks[i].miss > 10) tracks.splice(i, 1);
+  if (tracks.length > V.max) { tracks.sort((a, b) => (a.miss - b.miss) || (b.age - a.age)); tracks.length = V.max; }
+}
+
+function trackColor(t, V, a) {
+  if (V.color === 1) return `rgba(233,162,59,${a})`;
+  if (V.color === 2) return `hsla(${(t.id * 67) % 360},95%,62%,${a})`;
+  if (V.color === 3) return `rgba(255,70,70,${a})`;
+  return `rgba(255,255,255,${a})`;
+}
+function drawOverlay(V) {
+  const c = octx, W = overlay.width, H = overlay.height;
+  c.clearRect(0, 0, W, H);
+  const live = tracks.filter(t => t.miss <= 10);
+  const P = t => [t.x * W, (1 - t.y) * H];
+  const lw = Math.max(0.75, V.width * H / 720);
+  c.lineWidth = lw;
+  if (V.lines && live.length > 1) {
+    c.setLineDash(V.lines === 2 ? [] : [4 * lw, 3 * lw]);
+    const seg = (a, b, al) => { const [x1, y1] = P(a), [x2, y2] = P(b); c.strokeStyle = trackColor(a, V, al); c.beginPath(); c.moveTo(x1, y1); c.lineTo(x2, y2); c.stroke(); };
+    if (V.lines === 1) live.forEach(a => { let best = null, bd = 1e9; live.forEach(b => { if (a === b) return; const d = Math.hypot(a.x - b.x, a.y - b.y); if (d < bd) { bd = d; best = b; } }); if (best) seg(a, best, 0.7); });
+    else if (V.lines === 2) for (let i = 0; i < live.length; i++) for (let j = i + 1; j < live.length; j++) { const d = Math.hypot(live[i].x - live[j].x, live[i].y - live[j].y); if (d < 0.45) seg(live[i], live[j], 0.8 * (1 - d / 0.45)); }
+    else { const s = [...live].sort((a, b) => a.id - b.id); for (let i = 1; i < s.length; i++) seg(s[i - 1], s[i], 0.75); }
+    c.setLineDash([]);
+  }
+  const fs = Math.max(10, Math.round(H / 52));
+  c.font = `500 ${fs}px "JetBrains Mono", ui-monospace, monospace`;
+  c.textBaseline = 'top';
+  for (const t of live) {
+    const a = 1 - t.miss / 11;
+    const bw = t.w * W, bh = t.h * H;
+    const [cx, cy] = P(t);
+    const x0 = cx - bw / 2, y0 = cy - bh / 2;
+    c.strokeStyle = trackColor(t, V, a);
+    if (V.style === 0) {
+      const L = Math.min(bw, bh) * 0.28;
+      c.beginPath();
+      c.moveTo(x0, y0 + L); c.lineTo(x0, y0); c.lineTo(x0 + L, y0);
+      c.moveTo(x0 + bw - L, y0); c.lineTo(x0 + bw, y0); c.lineTo(x0 + bw, y0 + L);
+      c.moveTo(x0 + bw, y0 + bh - L); c.lineTo(x0 + bw, y0 + bh); c.lineTo(x0 + bw - L, y0 + bh);
+      c.moveTo(x0 + L, y0 + bh); c.lineTo(x0, y0 + bh); c.lineTo(x0, y0 + bh - L);
+      c.stroke();
+    } else if (V.style === 1) {
+      c.strokeRect(x0, y0, bw, bh);
+    } else if (V.style === 2) {
+      const ext = Math.max(bw, bh) * 0.75;
+      c.beginPath(); c.moveTo(cx - ext, cy); c.lineTo(cx + ext, cy); c.moveTo(cx, cy - ext); c.lineTo(cx, cy + ext); c.stroke();
+      c.strokeRect(cx - bw * 0.25, cy - bh * 0.25, bw * 0.5, bh * 0.5);
+    } else {
+      c.beginPath(); c.arc(cx, cy, Math.max(bw, bh) / 2, 0, 7); c.stroke();
+      c.fillStyle = trackColor(t, V, a); c.fillRect(cx - lw * 1.5, cy - lw * 1.5, lw * 3, lw * 3);
+    }
+    if (V.labels) {
+      let txt = '';
+      if (V.labels === 1) txt = `ID ${String(t.id).padStart(2, '0')}`;
+      else if (V.labels === 2) txt = `x${Math.round(t.x * canvas.width)} y${Math.round((1 - t.y) * canvas.height)}`;
+      else if (V.labels === 3) txt = (t.score || 0).toFixed(2);
+      else txt = `TRK_${t.id.toString(16).toUpperCase().padStart(3, '0')} ${Math.round(t.w * canvas.width)}×${Math.round(t.h * canvas.height)} v${Math.round(Math.hypot(t.vx, t.vy) * canvas.width)}`;
+      const tw = c.measureText(txt).width + 8;
+      const ly = y0 - fs - 6 < 0 ? y0 + bh + 2 : y0 - fs - 6;
+      c.fillStyle = trackColor(t, V, 0.85 * a); c.fillRect(x0, ly, tw, fs + 4);
+      c.fillStyle = `rgba(0,0,0,${a})`; c.fillText(txt, x0 + 4, ly + 2);
+    }
+  }
+  overlayTex.needsUpdate = true;
+  let n = 0;
+  for (const t of live) {
+    if (n >= 24 || t.miss > 2) continue;
+    BOX_LIST[n++].set(t.x - t.w / 2, t.y - t.h / 2, t.x + t.w / 2, t.y + t.h / 2);
+  }
+  return n;
+}
+
+/* ============================================================
+   UI — module cards
+   ============================================================ */
+const modulesEl = $('modules');
+const controls = {};
+
+function fmtVal(p, v) {
+  if (p.off !== undefined && v === p.off) return p.offLabel;
+  const dec = p.s >= 1 ? 0 : p.s >= 0.1 ? 1 : p.s >= 0.01 ? 2 : 3;
+  return (+v).toFixed(dec);
+}
+function setRangeFill(r) { r.style.setProperty('--p', ((r.value - r.min) / (r.max - r.min) * 100) + '%'); }
+function onParamChange(id, k) {
+  if (id === 'mosh' && k === 'block') resizeEngine();
+}
+
+function buildModules() {
+  for (const id of DEFAULT_ORDER) {
+    const d = DEFS[id];
+    const card = document.createElement('div');
+    card.className = 'card';
+    card.innerHTML = `
+      <div class="flex items-center gap-2 px-2.5 py-2">
+        <button class="sw" role="switch" aria-label="Enable ${d.name}"></button>
+        <button class="flex-1 min-w-0 text-left flex items-center gap-2 head" aria-expanded="false">
+          <span class="mod-code">${d.code}</span>
+          <span class="min-w-0">
+            <span class="block font-semibold text-[13px] truncate">${d.name}</span>
+            <span class="block text-[11px] text-mute truncate">${d.sub}</span>
+          </span>
+        </button>
+        <button class="up text-mute hover:text-fg px-1" title="Move earlier in chain" aria-label="Move ${d.name} earlier">▲</button>
+        <button class="down text-mute hover:text-fg px-1" title="Move later in chain" aria-label="Move ${d.name} later">▼</button>
+      </div>
+      <div class="card-body px-2.5 pb-2.5 flex flex-col gap-1.5"></div>`;
+    const body = card.querySelector('.card-body');
+    const inputs = {};
+    for (const p of d.params) {
+      if (p.g) { const g = document.createElement('div'); g.className = 'eyebrow pt-1.5'; g.textContent = p.g; body.appendChild(g); continue; }
+      const row = document.createElement('div');
+      const rid = `${id}_${p.k}`;
+      if (p.opts || p.toggle) {
+        row.className = 'flex items-center justify-between gap-2 min-h-[24px]';
+        row.innerHTML = `<label for="${rid}" class="text-[12px] text-mute">${p.l}</label>`;
+        let el;
+        if (p.opts) {
+          el = document.createElement('select'); el.id = rid;
+          p.opts.forEach((o, i) => el.add(new Option(o, i)));
+          el.addEventListener('change', () => { state.mods[id].values[p.k] = +el.value; persist(); onParamChange(id, p.k); });
+          inputs[p.k] = { sel: el };
+        } else {
+          el = document.createElement('button'); el.id = rid; el.className = 'sw'; el.setAttribute('role', 'switch');
+          el.addEventListener('click', () => { const v = state.mods[id].values[p.k] ? 0 : 1; state.mods[id].values[p.k] = v; el.setAttribute('aria-checked', !!v); persist(); });
+          inputs[p.k] = { tog: el };
+        }
+        row.appendChild(el);
+      } else {
+        row.className = 'grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-2';
+        row.innerHTML = `
+          <label for="${rid}" class="text-[12px] text-mute truncate">${p.l}${p.u ? ` <span class="opacity-60">${p.u}</span>` : ''}</label>
+          <input class="num" type="text" inputmode="decimal" aria-label="${p.l} value">
+          <input id="${rid}" type="range" min="${p.min}" max="${p.max}" step="${p.s}" class="col-span-2">`;
+        const range = row.querySelector('input[type=range]'), num = row.querySelector('.num');
+        const setV = (v, from) => {
+          v = Math.min(p.max, Math.max(p.min, +v)); if (Number.isNaN(v)) return;
+          state.mods[id].values[p.k] = v;
+          if (from !== 'range') range.value = v;
+          setRangeFill(range);
+          if (from !== 'num') num.value = fmtVal(p, v);
+          persist();
+        };
+        range.addEventListener('input', () => setV(range.value, 'range'));
+        range.addEventListener('change', () => onParamChange(id, p.k));
+        range.addEventListener('dblclick', () => { setV(p.v); onParamChange(id, p.k); });
+        num.addEventListener('change', () => { setV(num.value === p.offLabel ? p.off : parseFloat(num.value)); onParamChange(id, p.k); });
+        num.addEventListener('keydown', e => { if (e.key === 'Enter') num.blur(); });
+        inputs[p.k] = { range, num, p };
+      }
+      body.appendChild(row);
+    }
+    const sw = card.querySelector('.sw');
+    sw.addEventListener('click', () => toggleModule(id));
+    const head = card.querySelector('.head');
+    head.addEventListener('click', () => { state.mods[id].open = !state.mods[id].open; syncCard(id); persist(); });
+    card.querySelector('.up').addEventListener('click', () => moveModule(id, -1));
+    card.querySelector('.down').addEventListener('click', () => moveModule(id, 1));
+    controls[id] = { card, sw, head, body, inputs };
+    modulesEl.appendChild(card);
+  }
+}
+function syncCard(id) {
+  const c = controls[id], m = state.mods[id];
+  c.card.classList.toggle('off', !m.on);
+  c.sw.setAttribute('aria-checked', m.on);
+  c.body.hidden = !m.open;
+  c.head.setAttribute('aria-expanded', m.open);
+  for (const k in c.inputs) {
+    const inp = c.inputs[k], v = m.values[k];
+    if (inp.range) { inp.range.value = v; setRangeFill(inp.range); inp.num.value = fmtVal(inp.p, v); }
+    if (inp.sel) inp.sel.value = v;
+    if (inp.tog) inp.tog.setAttribute('aria-checked', !!v);
+  }
+}
+function syncPerf() {
+  const p = state.perf;
+  $('chaosAmt').value = p.chaos; $('chaosAmtV').textContent = p.chaos ? p.chaos.toFixed(2) : 'off'; setRangeFill($('chaosAmt'));
+  $('reactAmt').value = p.react; $('reactAmtV').textContent = p.react ? p.react.toFixed(2) : 'off'; setRangeFill($('reactAmt'));
+  $('cutSel').value = p.cut;
+}
+function syncAll() {
+  state.order.forEach(id => modulesEl.appendChild(controls[id].card));
+  for (const id in DEFS) syncCard(id);
+  rebuildChain();
+  renderChainMap();
+  syncPerf();
+  $('flashAmt').value = state.flashAmt; $('flashAmtV').textContent = (+state.flashAmt).toFixed(2); setRangeFill($('flashAmt'));
+}
+function toggleModule(id) {
+  state.mods[id].on = !state.mods[id].on;
+  if (id === 'mosh') moshPass.hasPrev = false;
+  if (id === 'track') tracks.length = 0;
+  syncCard(id); rebuildChain(); renderChainMap(); persist();
+}
+function moveModule(id, dir) {
+  const i = state.order.indexOf(id), j = i + dir;
+  if (j < 0 || j >= state.order.length) return;
+  [state.order[i], state.order[j]] = [state.order[j], state.order[i]];
+  syncAll(); persist();
+}
+function renderChainMap() {
+  const el = $('chainMap'); el.innerHTML = '';
+  const add = (txt, cls, title, onClick) => {
+    const b = document.createElement(onClick ? 'button' : 'span');
+    b.className = 'chip ' + (cls || ''); b.textContent = txt; if (title) b.title = title;
+    if (onClick) b.addEventListener('click', onClick);
+    el.appendChild(b);
+  };
+  const arrow = () => { const s = document.createElement('span'); s.className = 'chain-arrow'; s.textContent = '→'; el.appendChild(s); };
+  add('SRC', '', 'Source media');
+  for (const id of state.order) { arrow(); add(DEFS[id].code, state.mods[id].on ? '' : 'off', `${DEFS[id].name} — click to toggle`, () => toggleModule(id)); }
+  arrow(); add('OUT', '', 'Viewer / recorder');
+}
+
+buildModules();
+const presetSel = $('presetSel');
+presetSel.add(new Option('Choose a preset…', ''));
+Object.keys(PRESETS).forEach(n => presetSel.add(new Option(n, n)));
+presetSel.addEventListener('change', () => {
+  if (!presetSel.value) return;
+  const keep = { order: state.order, flashAmt: state.flashAmt };
+  const opens = Object.fromEntries(Object.keys(DEFS).map(id => [id, state.mods[id].open]));
+  const oldBlock = state.mods.mosh.values.block;
+  state = Object.assign(presetState(presetSel.value), keep);
+  for (const id in opens) state.mods[id].open = opens[id];
+  moshPass.hasPrev = false; tracks.length = 0;
+  if (state.mods.mosh.values.block !== oldBlock) resizeEngine();
+  syncAll(); persist(); toast(`Preset: ${presetSel.value}`);
+  presetSel.value = '';
+});
+$('resetBtn').addEventListener('click', () => { state = defaults(); moshPass.hasPrev = false; resizeEngine(); syncAll(); persist(); toast('All modules reset to defaults'); });
+$('flashAmt').addEventListener('input', e => { state.flashAmt = +e.target.value; $('flashAmtV').textContent = state.flashAmt.toFixed(2); setRangeFill(e.target); persist(); });
+$('chaosAmt').addEventListener('input', e => { state.perf.chaos = +e.target.value; syncPerf(); persist(); });
+$('reactAmt').addEventListener('input', e => { state.perf.react = +e.target.value; syncPerf(); persist(); });
+$('cutSel').addEventListener('change', e => { state.perf.cut = +e.target.value; persist(); });
+
+/* ---------- Transport ---------- */
+const playBtn = $('playBtn'), scrub = $('scrub');
+let paused = false, scrubbing = false;
+function updatePlayIcon() {
+  const p = media.kind === 'video' ? video.paused : paused;
+  $('playIco').innerHTML = p ? '<path d="M4 2.5v11l9-5.5z"/>' : '<path d="M4 3h3v10H4zM9 3h3v10H9z"/>';
+}
+playBtn.addEventListener('click', () => {
+  if (media.kind === 'video') { video.paused ? video.play() : video.pause(); }
+  else paused = !paused;
+  updatePlayIcon();
+});
+scrub.addEventListener('input', () => { scrubbing = true; if (video.duration) video.currentTime = scrub.value / 1000 * video.duration; setRangeFill(scrub); });
+scrub.addEventListener('change', () => { scrubbing = false; });
+$('qualSel').addEventListener('change', resizeEngine);
+$('demoBtn').addEventListener('click', () => { video.pause(); setSource(DEMO_SRC()); });
+$('camBtn').addEventListener('click', startCamera);
+
+/* A/B wipe + paint smear on the picture */
+let abOn = false, split = 0.5, dragging = false;
+let ptr = null, ptrLast = null;
+function setAB(v) { abOn = v; $('abBtn').classList.toggle('active', v); $('abHint').hidden = !v; $('smearHint').hidden = v; }
+$('abBtn').addEventListener('click', () => setAB(!abOn));
+function ptrUv(e) { const r = canvas.getBoundingClientRect(); return new THREE.Vector2((e.clientX - r.left) / r.width, 1 - (e.clientY - r.top) / r.height); }
+canvas.addEventListener('pointerdown', e => {
+  dragging = true; canvas.setPointerCapture(e.pointerId);
+  if (abOn) { split = Math.min(1, Math.max(0, ptrUv(e).x)); return; }
+  ptr = ptrUv(e); ptrLast = ptr.clone();
+  if (!state.mods.mosh.on) toast('Turn on M3 Datamosh to paint smears.');
+});
+canvas.addEventListener('pointermove', e => {
+  if (!dragging) return;
+  if (abOn) { split = Math.min(1, Math.max(0, ptrUv(e).x)); return; }
+  ptr = ptrUv(e);
+});
+const endDrag = () => { dragging = false; ptr = null; ptrLast = null; };
+canvas.addEventListener('pointerup', endDrag);
+canvas.addEventListener('pointercancel', endDrag);
+
+/* Drag & drop */
+let dragDepth = 0;
+window.addEventListener('dragenter', e => { e.preventDefault(); dragDepth++; $('dropZone').hidden = false; });
+window.addEventListener('dragover', e => e.preventDefault());
+window.addEventListener('dragleave', () => { if (--dragDepth <= 0) { dragDepth = 0; $('dropZone').hidden = true; } });
+window.addEventListener('drop', e => { e.preventDefault(); dragDepth = 0; $('dropZone').hidden = true; loadFile(e.dataTransfer.files[0]); });
+$('fileInput').addEventListener('change', e => { loadFile(e.target.files[0]); e.target.value = ''; });
+
+/* ---------- Performance pads ---------- */
+const pads = { hold: false, bloom: false, flash: false };
+function bindHoldPad(el, key) {
+  const on = () => { pads[key] = true; el.classList.add('on'); if (key !== 'flash' && !state.mods.mosh.on) toast('M3 Datamosh is off. Switch it on in the chain.'); };
+  const off = () => { pads[key] = false; el.classList.remove('on'); };
+  el.addEventListener('pointerdown', e => { e.preventDefault(); el.setPointerCapture(e.pointerId); on(); });
+  el.addEventListener('pointerup', off); el.addEventListener('pointercancel', off); el.addEventListener('lostpointercapture', off);
+  el.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.repeat) on(); });
+  el.addEventListener('keyup', e => { if (e.key === 'Enter') off(); });
+  return { on, off };
+}
+const PAD = { hold: bindHoldPad($('padHold'), 'hold'), bloom: bindHoldPad($('padBloom'), 'bloom'), flash: bindHoldPad($('padFlash'), 'flash') };
+function iframeTap() { moshPass.forceKey = true; const el = $('padKey'); el.classList.add('on'); setTimeout(() => el.classList.remove('on'), 120); }
+$('padKey').addEventListener('click', iframeTap);
+
+const typing = () => { const a = document.activeElement; return a && (a.tagName === 'INPUT' && a.type !== 'range' || a.tagName === 'SELECT' || a.tagName === 'TEXTAREA'); };
+window.addEventListener('keydown', e => {
+  if (typing() || e.metaKey || e.ctrlKey || e.altKey || !$('dctlModal').hidden) { if (e.key === 'Escape') closeDctl(); return; }
+  if (e.repeat) { if (e.code === 'Space') e.preventDefault(); return; }
+  const k = e.key.toLowerCase();
+  if (e.code === 'Space') { e.preventDefault(); PAD.flash.on(); }
+  else if (k === 'm') PAD.hold.on();
+  else if (k === 'n') PAD.bloom.on();
+  else if (k === 'i' || k === 'k') iframeTap();
+  else if (k === 'b') setAB(!abOn);
+  else if (k === 'r') toggleRec();
+});
+window.addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (e.code === 'Space') PAD.flash.off();
+  else if (k === 'm') PAD.hold.off();
+  else if (k === 'n') PAD.bloom.off();
+});
+window.addEventListener('blur', () => { PAD.flash.off(); PAD.hold.off(); PAD.bloom.off(); });
+
+/* ============================================================
+   FILE SAVING — claude.ai "downloads" capability when hosted as
+   an artifact, plain anchor download otherwise.
+   ============================================================ */
+let dlPromise = null;
+function getDownloads() {
+  if (!window.claude?.use) return Promise.resolve(null);
+  return dlPromise ||= window.claude.use('downloads').catch(() => null);
+}
+function hosted() { return !!window.claude?.use; }
+async function saveFile(filename, data) {
+  const blob = data instanceof Blob ? data : new Blob([data], { type: 'application/octet-stream' });
+  const dl = await getDownloads();
+  if (dl) {
+    try { await dl.save({ filename, data: blob }); toast(`Saved ${filename}`); }
+    catch (e) {
+      if (e?.code === 'declined') toast('Save cancelled');
+      else if (e?.code === 'rate_limited') toast('A save prompt is already open. Try again in a moment.');
+      else toast(`Couldn't save ${filename} here (${e?.code || 'error'}).`);
+    }
+    return;
+  }
+  if (hosted()) { toast('Saving files is not available in this view.'); return; }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob); a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+  toast(`Saved ${filename}`);
+}
+
+/* ---------- Recorder ---------- */
+const FORMATS = [
+  ['video/mp4;codecs=avc1.640028', 'MP4 · H.264', 'mp4'],
+  ['video/mp4', 'MP4', 'mp4'],
+  ['video/webm;codecs=vp9', 'WebM · VP9', 'webm'],
+  ['video/webm;codecs=vp8', 'WebM · VP8', 'webm'],
+  ['video/webm', 'WebM', 'webm'],
+];
+const fmtSel = $('fmtSel');
+const supported = FORMATS.filter(f => window.MediaRecorder && MediaRecorder.isTypeSupported(f[0]));
+const seenLabel = new Set();
+supported.forEach(f => { if (seenLabel.has(f[1])) return; seenLabel.add(f[1]); fmtSel.add(new Option(f[1], f[0])); });
+if (!supported.length) { fmtSel.add(new Option('Unavailable', '')); $('recBtn').disabled = true; }
+
+let rec = null, recChunks = [], recStart = 0;
+function toggleRec() { rec ? stopRec() : startRec(); }
+function startRec() {
+  const mime = fmtSel.value; if (!mime) return toast('This browser has no MediaRecorder support.');
+  const fps = +$('fpsSel').value;
+  let stream;
+  try { stream = canvas.captureStream(fps); } catch (e) { return toast('Canvas capture is blocked in this browser.'); }
+  const bps = Math.round(canvas.width * canvas.height * fps * 0.25);
+  try { rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: Math.min(Math.max(bps, 6e6), 40e6) }); }
+  catch (e) { rec = null; return toast(`Recorder refused ${mime}.`); }
+  recChunks = [];
+  const ext = FORMATS.find(f => f[0] === mime)?.[2] || 'webm';
+  rec.ondataavailable = e => { if (e.data && e.data.size) recChunks.push(e.data); };
+  rec.onstop = () => {
+    stream.getTracks().forEach(t => t.stop());
+    const blob = new Blob(recChunks, { type: mime.split(';')[0] });
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    saveFile(`glitch_${stamp}.${ext}`, blob);
+  };
+  rec.start(250);
+  recStart = performance.now();
+  $('recBtn').classList.add('rec-on'); $('recLabel').textContent = 'Stop';
+  $('hudRec').style.display = 'flex';
+  fmtSel.disabled = true; $('fpsSel').disabled = true; $('qualSel').disabled = true;
+}
+function stopRec() {
+  if (!rec) return;
+  rec.stop(); rec = null;
+  $('recBtn').classList.remove('rec-on'); $('recLabel').textContent = 'Record';
+  $('hudRec').style.display = 'none';
+  fmtSel.disabled = false; $('fpsSel').disabled = false; $('qualSel').disabled = false;
+}
+$('recBtn').addEventListener('click', toggleRec);
+$('pngBtn').addEventListener('click', () => canvas.toBlob(b => b && saveFile(`glitch_still_${Date.now()}.png`, b), 'image/png'));
+
+/* ============================================================
+   DCTL EXPORTER
+   Mirrors M2 blocks → M1 RGB split → M5 grade → M4 scanlines.
+   Temporal / multi-pass modules (datamosh, tracking, pixel sort,
+   roll, flicker) cannot run in a single-pixel DCTL.
+   ============================================================ */
+const F = (x, d = 4) => { const s = (+x).toFixed(d); return s.includes('.') ? s : s + '.0'; };
+function uiF(name, label, v, min, max, step) { return `DEFINE_UI_PARAMS(${name}, ${label}, DCTLUI_SLIDER_FLOAT, ${F(v)}, ${F(min)}, ${F(max)}, ${F(step)})`; }
+function uiI(name, label, v, min, max, step) { return `DEFINE_UI_PARAMS(${name}, ${label}, DCTLUI_SLIDER_INT, ${Math.round(v)}, ${min}, ${max}, ${step})`; }
+function uiC(name, label, v) { return `DEFINE_UI_PARAMS(${name}, ${label}, DCTLUI_CHECK_BOX, ${v ? 1 : 0})`; }
+
+function buildDCTL(name) {
+  const m = state.mods, R = m.rgb.values, B = m.block.values, G = m.grade.values, S = m.scan.values;
+  const W = canvas.width, H = canvas.height;
+  const order = state.order.filter(id => ['block', 'rgb', 'grade', 'scan'].includes(id));
+  const reordered = order.join() !== 'block,rgb,grade,scan';
+  const skipped = [];
+  if (m.mosh.on) skipped.push('M3 Datamosh (needs previous frames)');
+  if (m.track.on) skipped.push('M6 Tracking HUD (needs analysis over time)');
+  if (m.block.on && B.length > 0) skipped.push('M2 pixel sort (multi-pass)');
+  if (m.scan.on && (S.roll > 0 || S.flicker > 0 || S.tracking > 0 || S.chroma > 0)) skipped.push('M4 roll / flicker / tracking / chroma phase (time-based)');
+  const lines = [];
+  lines.push(
+`// ${name}.dctl — generated by Artifact Glitch Studio, ${new Date().toISOString().slice(0, 10)}
+// Display-referred effect: apply on a node working in Rec.709 / gamma 2.4 (or after your output CST).
+// Chain order: M2 Blocks -> M1 RGB Split -> M5 Grade -> M4 Scanlines.${reordered ? '\n// Note: your in-app chain order differs; this DCTL always uses the order above.' : ''}
+// Pixel sizes were tuned on a ${W}x${H} preview and scale with the timeline width.
+// Not exportable to a single-frame DCTL: ${skipped.length ? skipped.join('; ') : 'nothing in the current setup'}.
+// Animate p_Seed with keyframes to re-roll block corruption and noise per frame.
+`);
+  lines.push(
+    '// ---- M2 Block artifacts',
+    uiC('p_BlkOn', 'M2 Blocks', m.block.on),
+    uiF('p_BlkSize', 'Block Size', B.size, 2, 128, 1),
+    uiF('p_BlkAmt', 'Block Corruption', B.amount, 0, 1, 0.01),
+    uiF('p_BlkShift', 'Block Displace', B.shift, 0, 6, 0.05),
+    uiF('p_BlkQuant', 'Block Quantize', B.quant, 0, 1, 0.01),
+    uiF('p_BlkGrid', 'Block Grid', B.grid, 0, 1, 0.01),
+    uiI('p_Seed', 'Glitch Seed', 1, 0, 9999, 1),
+    '// ---- M1 RGB split',
+    uiC('p_RgbOn', 'M1 RGB Split', m.rgb.on),
+    uiF('p_RgbAmt', 'RGB Shift', R.amount, 0, 60, 0.1),
+    uiF('p_RgbAngle', 'RGB Angle', R.angle, 0, 360, 1),
+    uiF('p_RgbRadial', 'RGB Radial', R.radial, 0, 1, 0.01),
+    uiF('p_RgbDisp', 'RGB Dispersion', R.disp, 0, 1, 0.01),
+    uiF('p_RgbPhase', 'RGB Phase Wave', R.phase, 0, 30, 0.1),
+    uiF('p_RgbFreq', 'RGB Wave Freq', R.freq, 0, 40, 0.1),
+    uiF('p_RgbJitter', 'RGB Line Jitter', R.jitter, 0, 1, 0.01),
+    '// ---- M5 Grade',
+    uiC('p_GrdOn', 'M5 Grade', m.grade.on),
+    uiF('p_GrdExposure', 'Exposure', G.exposure, -3, 3, 0.01),
+    uiF('p_GrdContrast', 'Contrast', G.contrast, 0, 3, 0.01),
+    uiF('p_GrdSat', 'Saturation', G.sat, 0, 3, 0.01),
+    uiF('p_GrdGamma', 'Gamma', G.gamma, 0.2, 3, 0.01),
+    uiF('p_GrdHue', 'Hue Rotate', G.hue, -180, 180, 1),
+    uiF('p_GrdCrush', 'Black Crush', G.crush, 0, 0.5, 0.005),
+    uiF('p_GrdBits', 'Bit Depth', G.bits, 1, 8, 0.1),
+    uiI('p_GrdLevels', 'Posterize Levels', G.levels, 1, 32, 1),
+    uiF('p_GrdDither', 'Dither', G.dither, 0, 1, 0.01),
+    '// ---- M4 Scanlines',
+    uiC('p_ScnOn', 'M4 Scanlines', m.scan.on),
+    uiF('p_ScnPitch', 'Line Pitch', S.period, 1.5, 12, 0.1),
+    uiF('p_ScnLines', 'Scanline Depth', S.lines, 0, 1, 0.01),
+    uiF('p_ScnNoise', 'Analog Noise', S.noise, 0, 0.6, 0.005),
+    uiF('p_ScnVignette', 'Vignette', S.vignette, 0, 1, 0.01),
+    uiF('p_ScnCurve', 'Tube Curvature', S.curve, 0, 1, 0.01),
+    '',
+    `#define REF_W ${F(W, 1)}f`,
+    '#define PI_F 3.14159265f',
+    DCTL_BODY);
+  return lines.join('\n');
+}
+
+const DCTL_BODY = String.raw`
+__DEVICE__ float hashI(int x, int y, int s)
+{
+    unsigned int h = (unsigned int)x * 374761393u + (unsigned int)y * 668265263u + (unsigned int)s * 1442695041u;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    h = h ^ (h >> 16);
+    return (float)(h & 0x00FFFFFFu) / 16777215.0f;
+}
+
+__DEVICE__ int clampI(int v, int lo, int hi) { return v < lo ? lo : (v > hi ? hi : v); }
+__DEVICE__ float clampF(float v, float lo, float hi) { return _fminf(_fmaxf(v, lo), hi); }
+
+__DEVICE__ float3 fetchPx(__TEXTURE__ R, __TEXTURE__ G, __TEXTURE__ B, float fx, float fy, int w, int h)
+{
+    int x = clampI((int)_floorf(fx), 0, w - 1);
+    int y = clampI((int)_floorf(fy), 0, h - 1);
+    return make_float3(_tex2D(R, x, y), _tex2D(G, x, y), _tex2D(B, x, y));
+}
+
+// M2: macroblock corruption (flat block / displaced block / channel swap) + quantize + grid
+__DEVICE__ float3 blockSample(__TEXTURE__ R, __TEXTURE__ G, __TEXTURE__ B, float fx, float fy, int w, int h,
+                              int on, float sz, float amt, float shift, float quant, float grid, int seed)
+{
+    if (!on) return fetchPx(R, G, B, fx, fy, w, h);
+    sz = _fmaxf(sz, 1.0f);
+    int bx = (int)_floorf(fx / sz), by = (int)_floorf(fy / sz);
+    float mode = -1.0f;
+    if (hashI(bx, by, seed) < amt) mode = hashI(bx + 7, by + 13, seed + 101);
+    float3 c;
+    if (mode >= 0.0f && mode < 0.4f) {
+        c = fetchPx(R, G, B, ((float)bx + 0.5f) * sz, ((float)by + 0.5f) * sz, w, h);
+    } else if (mode >= 0.4f && mode < 0.75f) {
+        float ox = (hashI(bx, by, seed + 202) - 0.5f) * 2.0f * shift * sz;
+        float oy = (hashI(bx, by, seed + 303) - 0.5f) * 2.0f * shift * sz;
+        c = fetchPx(R, G, B, fx + ox, fy + oy, w, h);
+    } else if (mode >= 0.75f) {
+        float3 t = fetchPx(R, G, B, fx, fy, w, h);
+        c = make_float3(t.z, t.x, t.y);
+    } else {
+        c = fetchPx(R, G, B, fx, fy, w, h);
+    }
+    if (quant > 0.0f && mode >= 0.0f) {
+        float q = 256.0f + (4.0f - 256.0f) * quant;
+        c.x = _floorf(c.x * q + 0.5f) / q;
+        c.y = _floorf(c.y * q + 0.5f) / q;
+        c.z = _floorf(c.z * q + 0.5f) / q;
+    }
+    if (grid > 0.0f) {
+        float mx = fx - _floorf(fx / sz) * sz, my = fy - _floorf(fy / sz) * sz;
+        if (mx < 1.0f || my < 1.0f) { float k = 1.0f - 0.45f * grid; c.x *= k; c.y *= k; c.z *= k; }
+    }
+    return c;
+}
+
+__DEVICE__ float3 transform(int p_Width, int p_Height, int p_X, int p_Y, __TEXTURE__ p_TexR, __TEXTURE__ p_TexG, __TEXTURE__ p_TexB)
+{
+    float W = (float)p_Width, H = (float)p_Height;
+    float sc = W / REF_W;
+    float fx = (float)p_X + 0.5f, fy = (float)p_Y + 0.5f;
+
+    // M4 tube curvature warps the coordinates the whole chain samples from
+    if (p_ScnOn && p_ScnCurve > 0.0f) {
+        float cx = fx / W * 2.0f - 1.0f, cy = fy / H * 2.0f - 1.0f;
+        float k = 1.0f + p_ScnCurve * 0.18f * (cx * cx + cy * cy);
+        cx *= k; cy *= k;
+        if (cx < -1.0f || cx > 1.0f || cy < -1.0f || cy > 1.0f) return make_float3(0.0f, 0.0f, 0.0f);
+        fx = (cx * 0.5f + 0.5f) * W;
+        fy = (cy * 0.5f + 0.5f) * H;
+    }
+
+    float bsz = p_BlkSize * sc;
+    float r, g, b;
+
+    // M1 RGB split / chromatic aberration (sampling the M2 result)
+    if (p_RgbOn) {
+        int row = (int)_floorf(fy / (3.0f * sc));
+        if (hashI(row, 0, p_Seed + 404) > 0.86f)
+            fx += (hashI(row, 1, p_Seed + 505) - 0.5f) * p_RgbJitter * 40.0f * sc;
+        float a = p_RgbAngle * PI_F / 180.0f;
+        float ccx = (fx / W - 0.5f) * (W / H) * 2.0f;
+        float ccy = (0.5f - fy / H) * 2.0f;
+        float dgx = _cosf(a) + (ccx - _cosf(a)) * p_RgbRadial;
+        float dgy = _sinf(a) + (ccy - _sinf(a)) * p_RgbRadial;
+        float wave = _sinf((1.0f - fy / H) * p_RgbFreq * 6.2831853f + (float)p_Seed) * p_RgbPhase;
+        float amt = (p_RgbAmt + wave) * sc;
+        float ox = dgx * amt, oy = -dgy * amt;
+        r = blockSample(p_TexR, p_TexG, p_TexB, fx + ox, fy + oy, p_Width, p_Height, p_BlkOn, bsz, p_BlkAmt, p_BlkShift, p_BlkQuant, p_BlkGrid, p_Seed).x;
+        g = blockSample(p_TexR, p_TexG, p_TexB, fx, fy, p_Width, p_Height, p_BlkOn, bsz, p_BlkAmt, p_BlkShift, p_BlkQuant, p_BlkGrid, p_Seed).y;
+        b = blockSample(p_TexR, p_TexG, p_TexB, fx - ox, fy - oy, p_Width, p_Height, p_BlkOn, bsz, p_BlkAmt, p_BlkShift, p_BlkQuant, p_BlkGrid, p_Seed).z;
+        if (p_RgbDisp > 0.001f) {
+            float ar = 0.0f, ag = 0.0f, ab = 0.0f, wr = 0.0f, wg = 0.0f, wb = 0.0f;
+            for (int i = 0; i < 9; i++) {
+                float x = (float)i / 8.0f;
+                float kr = _fmaxf(0.0f, 1.0f - _fabs(x - 1.0f) * 2.0f);
+                float kg = _fmaxf(0.0f, 1.0f - _fabs(x - 0.5f) * 2.0f);
+                float kb = _fmaxf(0.0f, 1.0f - _fabs(x) * 2.0f);
+                float t = x * 2.0f - 1.0f;
+                float3 s = blockSample(p_TexR, p_TexG, p_TexB, fx + ox * t, fy + oy * t, p_Width, p_Height, p_BlkOn, bsz, p_BlkAmt, p_BlkShift, p_BlkQuant, p_BlkGrid, p_Seed);
+                ar += s.x * kr; ag += s.y * kg; ab += s.z * kb;
+                wr += kr; wg += kg; wb += kb;
+            }
+            r += (ar / wr - r) * p_RgbDisp;
+            g += (ag / wg - g) * p_RgbDisp;
+            b += (ab / wb - b) * p_RgbDisp;
+        }
+    } else {
+        float3 s = blockSample(p_TexR, p_TexG, p_TexB, fx, fy, p_Width, p_Height, p_BlkOn, bsz, p_BlkAmt, p_BlkShift, p_BlkQuant, p_BlkGrid, p_Seed);
+        r = s.x; g = s.y; b = s.z;
+    }
+
+    // M5 grade / crush
+    if (p_GrdOn) {
+        float e = _powf(2.0f, p_GrdExposure);
+        r *= e; g *= e; b *= e;
+        r = (r - 0.5f) * p_GrdContrast + 0.5f;
+        g = (g - 0.5f) * p_GrdContrast + 0.5f;
+        b = (b - 0.5f) * p_GrdContrast + 0.5f;
+        float l = 0.2126f * r + 0.7152f * g + 0.0722f * b;
+        r = l + (r - l) * p_GrdSat; g = l + (g - l) * p_GrdSat; b = l + (b - l) * p_GrdSat;
+        if (p_GrdHue != 0.0f) {
+            float ha = p_GrdHue * PI_F / 180.0f, ca = _cosf(ha), sa = _sinf(ha), s3 = 0.57735027f;
+            float m3 = (r + g + b) / 3.0f * (1.0f - ca);
+            float nr = r * ca + s3 * (b - g) * sa + m3;
+            float ng = g * ca + s3 * (r - b) * sa + m3;
+            float nb = b * ca + s3 * (g - r) * sa + m3;
+            r = nr; g = ng; b = nb;
+        }
+        float cd = _fmaxf(1.0f - p_GrdCrush, 0.001f);
+        r = _fmaxf(r - p_GrdCrush, 0.0f) / cd; g = _fmaxf(g - p_GrdCrush, 0.0f) / cd; b = _fmaxf(b - p_GrdCrush, 0.0f) / cd;
+        float ig = 1.0f / _fmaxf(p_GrdGamma, 0.01f);
+        r = _powf(clampF(r, 0.0f, 1.0f), ig); g = _powf(clampF(g, 0.0f, 1.0f), ig); b = _powf(clampF(b, 0.0f, 1.0f), ig);
+        if (p_GrdBits < 7.99f) {
+            float q = _powf(2.0f, _floorf(p_GrdBits)) - 1.0f;
+            float d = (hashI(p_X, p_Y, p_Seed + 606) - 0.5f) * p_GrdDither;
+            r = _floorf(r * q + 0.5f + d) / q; g = _floorf(g * q + 0.5f + d) / q; b = _floorf(b * q + 0.5f + d) / q;
+        }
+        if (p_GrdLevels >= 2) {
+            float L = (float)p_GrdLevels - 1.0f;
+            r = _floorf(r * L + 0.5f) / L; g = _floorf(g * L + 0.5f) / L; b = _floorf(b * L + 0.5f) / L;
+        }
+    }
+
+    // M4 scanlines, analog noise, vignette
+    if (p_ScnOn) {
+        float s = 0.5f + 0.5f * _cosf((H - fy) * 6.2831853f / _fmaxf(p_ScnPitch * sc, 1.0f));
+        float k = 1.0f - p_ScnLines * (1.0f - s);
+        r *= k; g *= k; b *= k;
+        float n = (hashI(p_X, p_Y, p_Seed + 707) - 0.5f) * p_ScnNoise;
+        r += n; g += n; b += n;
+        float vx = (float)p_X / W - 0.5f, vy = (float)p_Y / H - 0.5f;
+        float v = 1.0f - p_ScnVignette * (vx * vx + vy * vy) * 2.2f;
+        r *= v; g *= v; b *= v;
+    }
+
+    return make_float3(clampF(r, 0.0f, 1.0f), clampF(g, 0.0f, 1.0f), clampF(b, 0.0f, 1.0f));
+}
+`;
+
+/* ---------- DCTL modal ---------- */
+const dctlModal = $('dctlModal');
+const dctlName = () => ($('dctlName').value.trim().replace(/[^A-Za-z0-9_-]+/g, '_') || 'ArtifactGlitch');
+function renderDctl() {
+  $('dctlCode').textContent = buildDCTL(dctlName());
+  const m = state.mods, notes = [];
+  if (m.mosh.on || m.track.on) notes.push('Datamosh and tracking work across frames, so they are not in the DCTL. Record them with Record instead.');
+  if (m.block.on && m.block.values.length > 0) notes.push('Pixel sort is multi-pass, so only the block artifacts of M2 are exported.');
+  if (hosted()) notes.push('Saves from this page arrive as .dctl.txt: delete the .txt ending before installing.');
+  $('dctlNote').textContent = notes.join(' ');
+}
+function openDctl() { renderDctl(); dctlModal.hidden = false; $('dctlCopy').focus(); }
+function closeDctl() { dctlModal.hidden = true; }
+$('dctlBtn').addEventListener('click', openDctl);
+$('dctlClose').addEventListener('click', closeDctl);
+dctlModal.addEventListener('click', e => { if (e.target === dctlModal) closeDctl(); });
+$('dctlName').addEventListener('input', renderDctl);
+$('dctlCopy').addEventListener('click', () => {
+  const code = $('dctlCode').textContent;
+  const fallback = () => {
+    const sel = window.getSelection(), r = document.createRange();
+    r.selectNodeContents($('dctlCode')); sel.removeAllRanges(); sel.addRange(r);
+    toast('Clipboard blocked here. The code is selected: press ⌘C / Ctrl+C.');
+  };
+  try { navigator.clipboard.writeText(code).then(() => toast('DCTL copied to clipboard'), fallback); } catch (e) { fallback(); }
+});
+$('dctlSave').addEventListener('click', () => {
+  const name = dctlName();
+  saveFile(hosted() ? `${name}.dctl.txt` : `${name}.dctl`, $('dctlCode').textContent);
+});
+
+/* ---------- Toast & helpers ---------- */
+let toastT = 0;
+function toast(msg) { const t = $('toast'); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 3200); }
+function timecode(t, fps = 24) {
+  const f = Math.floor(t * fps), p = n => String(n).padStart(2, '0');
+  return `${p(Math.floor(f / (fps * 3600)) % 24)}:${p(Math.floor(f / (fps * 60)) % 60)}:${p(Math.floor(f / fps) % 60)}:${p(f % fps)}`;
+}
+function fmtDur(d) { if (!isFinite(d)) return '--:--'; const s = Math.round(d); return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
+video.addEventListener('play', updatePlayIcon);
+video.addEventListener('pause', updatePlayIcon);
+
+/* ============================================================
+   CHAOS + REACTIVITY — Poisson-timed events, never a loop
+   ============================================================ */
+const chaos = { next: 1.5, holdUntil: 0, bloomUntil: 0, stormUntil: 0, tearUntil: 0, tearPx: 0, burstUntil: 0, level: 0 };
+const react = { ema: 0.02, cutEma: 0.02, cool: 0, holdUntil: 0, motion: 0 };
+const seeds = { mosh: { v: 1, next: 0 }, block: { v: 1, next: 0 }, rgb: { v: 1, next: 0 } };
+function reseed(name, rate, t) {
+  const s = seeds[name];
+  if (rate <= 0) return;
+  if (t >= s.next) { s.v = Math.random() * 1000; s.next = t + expRand(1 / rate); }
+}
+function chaosTick(t) {
+  const c = state.perf.chaos;
+  if (c <= 0) { chaos.level = 0; return; }
+  if (t >= chaos.next) {
+    chaos.next = t + expRand(0.6 + 5.5 * (1 - c));
+    const r = Math.random();
+    if (r < 0.42) chaos.holdUntil = Math.max(chaos.holdUntil, t + 0.25 + expRand(0.6 + 2.4 * c));
+    else if (r < 0.62) { chaos.bloomUntil = t + 0.12 + Math.random() * (0.3 + 1.3 * c); chaos.holdUntil = Math.max(chaos.holdUntil, chaos.bloomUntil + Math.random()); }
+    else if (r < 0.74) { moshPass.forceKey = true; if (Math.random() < 0.6) chaos.holdUntil = t + 0.1 + expRand(1.2); }
+    else if (r < 0.86) chaos.stormUntil = t + 0.08 + Math.random() * 0.45;
+    else if (r < 0.95) { chaos.tearUntil = t + 0.06 + Math.random() * 0.3; chaos.tearPx = 6 + Math.random() * 40 * c; }
+    else chaos.burstUntil = t + 0.04 + Math.random() * 0.16;
+    seeds.mosh.next = 0;
+  }
+  chaos.level = Math.max(t < chaos.holdUntil ? 0.6 : 0, t < chaos.bloomUntil ? 1 : 0, t < chaos.stormUntil || t < chaos.tearUntil || t < chaos.burstUntil ? 0.8 : 0) * (0.5 + c * 0.5);
+}
+let cutHoldUntil = 0, dropFrame = false;
+function analyzeTick(t, buf, AW, AH) {
+  let m = 0, d = 0;
+  const N = AW * AH;
+  for (let i = 0; i < N; i++) { m += buf[i * 4]; d += buf[i * 4 + 3]; }
+  m /= N * 255; d /= N * 255;
+  react.motion += (m - react.motion) * 0.35;
+  const isCut = d > 0.09 && d > react.cutEma * 4.5;
+  react.cutEma += (d - react.cutEma) * 0.08;
+  if (isCut && state.perf.cut !== 2) {
+    if (state.perf.cut === 0) { cutHoldUntil = t + 1.2 + Math.random() * 2.8; dropFrame = true; }
+    else moshPass.forceKey = true;
+  }
+  const R = state.perf.react;
+  if (R > 0 && t > react.cool && m > react.ema * (2.2 - R * 1.1) + 0.015 + (1 - R) * 0.03) {
+    react.holdUntil = t + 0.25 + Math.random() * (0.4 + R * 1.6);
+    if (Math.random() < R * 0.35) chaos.bloomUntil = t + 0.1 + Math.random() * 0.4 * R;
+    react.cool = t + 0.5 + Math.random() * 1.5;
+  }
+  react.ema += (m - react.ema) * 0.03;
+}
+
+/* ============================================================
+   RENDER LOOP
+   ============================================================ */
+let time = 0, demoTime = 0, demoFrame = -1, last = performance.now(), holdEase = 0, flash = 0;
+let fpsFrames = 0, fpsSince = performance.now(), lastFlashPx = -1, lastVideoT = -1, boxCount = 0;
+const flashFx = $('flashFx');
+const mHold = $('mHold'), mMotion = $('mMotion'), mChaos = $('mChaos');
+
+function applyUniforms() {
+  for (const id in MATS) {
+    const vals = state.mods[id].values;
+    for (const mat of MATS[id]) for (const k in vals) { const u = mat.uniforms['u_' + k]; if (u) u.value = +vals[k]; }
+  }
+}
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.1, Math.max(0, (now - last) / 1000)); last = now;
+  time += dt;
+
+  // source frame clock: demo runs at 30 fps like footage; video/camera report their own frames
+  let newFrame = false;
+  if (media.kind === 'demo') {
+    if (!paused) demoTime += dt;
+    const f = Math.floor(demoTime * 30);
+    if (f !== demoFrame) { demoFrame = f; drawDemo(demoTime); demoTex.needsUpdate = true; newFrame = true; }
+  } else if (media.kind !== 'image') {
+    if (video.currentTime !== lastVideoT) { lastVideoT = video.currentTime; newFrame = true; }
+  }
+  if (media.fresh) { media.fresh = false; newFrame = true; }
+
+  chaosTick(time);
+  const P = state.mods.mosh.values, c = state.perf.chaos;
+
+  // flash
+  const fTarget = pads.flash || time < chaos.burstUntil ? 1 : 0;
+  flash += (fTarget - flash) * (1 - Math.exp(-dt * (fTarget > flash ? 45 : 7)));
+  if (flash < 0.002) flash = 0;
+  const fx = flash * state.flashAmt;
+
+  // mosh hold: instant attack, block-by-block release
+  const bloomOn = pads.bloom || time < chaos.bloomUntil;
+  const target = Math.max(P.amount, pads.hold ? 1 : 0, bloomOn ? 1 : 0, time < chaos.holdUntil ? 1 : 0, time < react.holdUntil ? 1 : 0, time < cutHoldUntil ? 1 : 0, Math.min(1, fx));
+  holdEase = target >= holdEase ? target : Math.max(target, holdEase - dt / Math.max(0.02, P.release));
+
+  // brush
+  let brush = null;
+  if (ptr && ptrLast && state.mods.mosh.on) {
+    const vel = new THREE.Vector2((ptr.x - ptrLast.x) * canvas.width, (ptr.y - ptrLast.y) * canvas.height).multiplyScalar(0.6 / Math.max(dt * 60, 0.25));
+    brush = { a: ptrLast.clone(), b: ptr.clone(), vel };
+    ptrLast = ptr.clone();
+  }
+
+  const trackOn = state.mods.track.on;
+  engine.update(sourceMat.uniforms.tSource.value, newFrame, { dt, brush, freeze: bloomOn, analyze: true });
+  if (engine.anFresh) {
+    analyzeTick(time, engine.anBuf, engine.AW, engine.AH);
+    if (trackOn) associate(detect(engine.anBuf, engine.AW, engine.AH, state.mods.track.values), state.mods.track.values);
+  }
+  boxCount = trackOn ? drawOverlay(state.mods.track.values) : 0;
+
+  reseed('mosh', P.reshuffle, time);
+  reseed('block', state.mods.block.values.speed * (time < chaos.stormUntil ? 4 : 1), time);
+  reseed('rgb', 14 + 30 * c, time);
+
+  for (const m of allMats) { m.uniforms.uTime.value = time; m.uniforms.uFlash.value = fx; }
+  applyUniforms();
+
+  const mu = moshPass.mat.uniforms;
+  const key = moshPass.forceKey; moshPass.forceKey = false;
+  mu.uKey.value = key ? 1 : 0;
+  mu.uHold.value = holdEase;
+  mu.uSeed.value = seeds.mosh.v;
+  mu.uBloom.value = bloomOn ? 1 : 0;
+  mu.uDrop.value = dropFrame ? 1 : 0; dropFrame = false;
+  mu.uFlowScale.value = newFrame || bloomOn ? 1 : 0;
+  mu.uTurbT.value = time * 0.35 + noise1(time * 0.1) * 3;
+  mu.uGainMul.value = (1 + c * 0.8 * (noise1(time * 0.37 + 11) * 2 - 1)) * (1 + fx * 2);
+  mu.uStep.value = Math.min(3, dt * 60);
+  mu.uTrackMosh.value = trackOn ? state.mods.track.values.mosh : 0;
+  mu.u_turb.value = P.turb + c * 0.25 * Math.pow(noise1(time * 0.21 + 40), 3);
+  for (const m of [moshPass.mat, trackMat]) m.uniforms.uBoxCount.value = boxCount;
+
+  blockPass.blockMat.uniforms.uSeed.value = seeds.block.v;
+  blockPass.blockMat.uniforms.uBoost.value = time < chaos.stormUntil ? 0.15 + 0.35 * c : 0;
+  rgbMat.uniforms.uSeed.value = seeds.rgb.v;
+  rgbMat.uniforms.uBoost.value = time < chaos.tearUntil ? chaos.tearPx : 0;
+  blockPass.iterations = Math.min(128, Math.round(state.mods.block.values.length + fx * 48));
+  compareMat.uniforms.uSplit.value = abOn ? split : -1;
+
+  composer.render(dt);
+
+  // HUD
+  const fpx = Math.round(fx * 6);
+  if (fpx !== lastFlashPx) { flashFx.style.boxShadow = fpx ? `inset 0 0 0 ${fpx}px var(--rec)` : 'none'; lastFlashPx = fpx; }
+  mHold.style.width = (holdEase * 100).toFixed(1) + '%';
+  mHold.style.background = bloomOn ? 'var(--fg)' : '';
+  mMotion.style.width = Math.min(100, react.motion * 400).toFixed(1) + '%';
+  mChaos.style.width = (chaos.level * 100).toFixed(1) + '%';
+  fpsFrames++;
+  if (now - fpsSince > 500) { $('hudFps').textContent = Math.round(fpsFrames * 1000 / (now - fpsSince)) + ' fps'; fpsFrames = 0; fpsSince = now; }
+  if (media.kind === 'video') {
+    $('hudTc').textContent = timecode(video.currentTime || 0);
+    if (!scrubbing && video.duration) { scrub.value = Math.round(video.currentTime / video.duration * 1000); setRangeFill(scrub); }
+  } else if (media.kind === 'demo') $('hudTc').textContent = timecode(demoTime + 3600);
+  else $('hudTc').textContent = media.kind === 'camera' ? 'LIVE' : 'STILL';
+  if (rec) { const s = Math.floor((now - recStart) / 1000); $('recTime').textContent = `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`; }
+}
+
+/* ---------- Boot ---------- */
+syncAll();
+setSource(DEMO_SRC());
+requestAnimationFrame(frame);
+</script>
+
+</body>
+</html>
